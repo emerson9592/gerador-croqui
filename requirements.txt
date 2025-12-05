@@ -1,0 +1,6 @@
+nginx
+
+Flask
+reportlab
+pdfrw
+gunicorn
