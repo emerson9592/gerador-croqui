@@ -164,6 +164,97 @@ def generate_pps(total_length, vt_each=15):
 
 
 # ----------------------------
+# 2b. Divisão de tratativas (nova função)
+# ----------------------------
+def dividir_tratativas(material_lines):
+    """
+    Regras:
+      - Lançamento (metros): sempre fica no ponto 1
+      - Fusões, Tubo Loose, etc → dividir 50/50
+      - CEO, PTRO, Abertura e Reabertura:
+           • Se forem diferentes e quantidade 1 → cada um vai para um ponto
+           • Se forem iguais e quantidade > 1 → dividir 50/50
+           • Se houver mistura de 2 itens unitários → 1 em cada ponto
+    """
+
+    # Palavras-chave classificadas
+    divisiveis = ["fus", "fusão", "fusões", "fusao", "tubo", "loose"]
+    especiais = ["ceo", "ptro", "abertura", "reabertura"]
+
+    p1 = []
+    p2 = []
+
+    # Primeiro, normalizar e extrair itens estruturados
+    itens = []
+    for linha in material_lines:
+        texto = linha.strip()
+        low = texto.lower()
+
+        m = re.match(r"(\d+)\s+(.+)", low)
+        if not m:
+            itens.append({"qtd": 1, "nome": low, "orig": texto})
+            continue
+
+        qtd = int(m.group(1))
+        nome = m.group(2).strip()
+
+        itens.append({"qtd": qtd, "nome": nome, "orig": texto})
+
+    # --- CASO ESPECIAL ---
+    # Se existirem 2 itens diferentes com quantidade 1 e forem “especiais” (CEO/ PTRO / Abertura / Reabertura)
+    especiais_unitarios = [i for i in itens if i["qtd"] == 1 and any(k in i["nome"] for k in especiais)]
+    if len(especiais_unitarios) == 2:
+        p1.append(especiais_unitarios[0]["orig"])
+        p2.append(especiais_unitarios[1]["orig"])
+
+        # Remover esses itens da lista
+        restantes = [i for i in itens if i not in especiais_unitarios]
+    else:
+        restantes = itens.copy()
+
+    # --- PROCESSAMENTO NORMAL ---
+    for item in restantes:
+        qtd = item["qtd"]
+        nome = item["nome"]
+        orig = item["orig"]
+
+        # Lançamento
+        if "metr" in nome:
+            p1.append(orig)
+            continue
+
+        # Itens especiais
+        if any(k in nome for k in especiais):
+            if qtd == 1:
+                p1.append(orig)  # único → ponto 1
+            else:
+                # dividir em 2
+                metade = qtd // 2
+                resto = qtd - metade
+                if metade > 0:
+                    p1.append(f"{metade} {nome}")
+                if resto > 0:
+                    p2.append(f"{resto} {nome}")
+            continue
+
+        # itens divisíveis
+        if any(k in nome for k in divisiveis):
+            metade = qtd // 2
+            resto = qtd - metade
+            if metade > 0:
+                p1.append(f"{metade} {nome}")
+            if resto > 0:
+                p2.append(f"{resto} {nome}")
+            continue
+
+        # não divisíveis → ponto 1
+        p1.append(orig)
+
+    return p1, p2
+
+
+
+# ----------------------------
 # 3. Geração do PDF (Overlay)
 # ----------------------------
 def create_overlay(parsed, materials_raw, pp_list, overlay_path):
@@ -224,7 +315,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
             put_xy(f"re_{i}", item['re'], size=9,
                    manual_coords=(EXEC_CONFIG['re_x'], current_y))
 
-    # Materiais
+    # Materiais (rodapé)
     mxp, myp = COORDS['materials_block']
     mx, my = pct_to_pt(mxp, myp, width_pt, height_pt)
     c.setFont('Helvetica', 8)
@@ -242,12 +333,21 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
     c.setDash(4, 2)
     c.line(left_x, draw_y, right_x, draw_y)
     c.setDash([])
-
     c.setFont('Helvetica-Bold', 10)
+
+    # --- Exibir endereço centralizado acima do croqui (se houver)
+    if parsed.get('endereco'):
+        addr_text = parsed['endereco']
+        c.setFont('Helvetica-Bold', 10)
+        text_width = c.stringWidth(addr_text, 'Helvetica-Bold', 10)
+        center_x = (left_x + right_x) / 2
+        text_x = center_x - (text_width / 2)
+        # Abaixo da linha pontilhada
+        c.drawString(text_x, draw_y + -100, addr_text)
 
     # =======================================
     #   *** CASO NÃO HAJA LANÇAMENTO ***
-    # → Criar 3 XC (Início - Meio - Fim)
+    # (mantém comportamento atual: 3 XC, VT no meio, sem tratativas no desenho)
     # =======================================
     if len(pp_list) == 0:
         total_width = right_x - left_x
@@ -261,7 +361,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         c.circle(mid_x, draw_y, 4, fill=1)
         c.drawString(mid_x - 8, draw_y - 20, "XC")
 
-        # MOSTRAR SOMENTE UM VT NO MEIO
+        # VT NO MEIO
         c.drawString(mid_x - 12, draw_y + 15, "VT 15m")
 
         # XC Fim
@@ -275,6 +375,72 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
     # =======================================
     #   *** CASO HAJA LANÇAMENTO NORMAL ***
     # =======================================
+
+    # Antes de desenhar os PP, preparar e desenhar as tratativas acima da linha
+    houve_lancamento = (len(pp_list) > 0)
+    if houve_lancamento:
+        ponto1_list, ponto2_list = dividir_tratativas(materials_raw)
+
+        c.setFont("Helvetica", 8)
+        offset = 35  # distância acima da linha
+
+        # ===== CONFIGURAÇÃO DA CAIXA =====
+        line_height = 10
+        padding = 15  # espaço interno vertical
+        title_height = 12  # espaço para o título
+        box_width = 180  # largura das caixas
+
+        # ========= CAIXA DO INÍCIO ========= #
+
+        total_lines_1 = len(ponto1_list)
+        box_height_1 = padding + title_height + (total_lines_1 * line_height)
+
+        box_x1 = left_x - 20
+        box_y1 = draw_y + offset
+
+        # Fundo da caixa (apenas borda)
+        c.rect(box_x1, box_y1, box_width, box_height_1, fill=0)
+
+        # Título
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(box_x1 + 5, box_y1 + box_height_1 - 10, "Tratativas 1º ponto")
+
+        # Conteúdo
+        c.setFont("Helvetica", 8)
+        text_start_y = box_y1 + box_height_1 - title_height - 8
+
+        for i, item in enumerate(ponto1_list):
+            c.drawString(box_x1 + 5, text_start_y - (i * line_height), item)
+
+        # Seta (Início → Caixa)
+        seta_x = box_x1 + box_width / 2
+        c.line(left_x, draw_y, seta_x, box_y1)
+        c.drawString(seta_x - 4, box_y1 - 10, "↑")
+
+        # ========= CAIXA DO FIM ========= #
+
+        total_lines_2 = len(ponto2_list)
+        box_height_2 = padding + title_height + (total_lines_2 * line_height)
+
+        box_x2 = right_x - box_width + 20
+        box_y2 = draw_y + offset
+
+        c.rect(box_x2, box_y2, box_width, box_height_2, fill=0)
+
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(box_x2 + 5, box_y2 + box_height_2 - 10, "Tratativas 2º ponto")
+
+        c.setFont("Helvetica", 8)
+        text_start_y2 = box_y2 + box_height_2 - title_height - 8
+
+        for i, item in enumerate(ponto2_list):
+            c.drawString(box_x2 + 5, text_start_y2 - (i * line_height), item)
+
+        # Seta (Fim → Caixa)
+        seta_x2 = box_x2 + box_width / 2
+        c.line(right_x, draw_y, seta_x2, box_y2)
+        c.drawString(seta_x2 - 4, box_y2 - 10, "↑")
+
     total_width = right_x - left_x
     spans = len(pp_list)
     step = total_width / spans
@@ -282,7 +448,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
 
     # XC inicial
     c.circle(current_x, draw_y, 4, fill=1)
-    c.drawString(current_x - 12, draw_y - 20, "Inicio")
+    c.drawString(current_x - 12, draw_y - 20, "XC Inicial")
     c.drawString(current_x, draw_y + 15, "VT 15m")
 
     for i, dist in enumerate(pp_list):
@@ -296,7 +462,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
 
         if i == len(pp_list) - 1:
             c.drawString(next_x - 20, draw_y + 15, "VT 15m")
-            c.drawString(next_x - 8, draw_y - 20, "Fim")
+            c.drawString(next_x - 8, draw_y - 20, "XC final")
         else:
             c.drawString(next_x - 8, draw_y - 20, "XC")
 
