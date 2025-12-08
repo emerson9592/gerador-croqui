@@ -506,7 +506,7 @@ INDEX_HTML = """
 </head>
 <body>
     <div class="container">
-        <h2>Gerador de Relatórios Telecom</h2>
+        <h2>Gerador de Relatórios</h2>
         <form method='post' action='/generate' target='_blank'>
 <textarea name='text'>T.A: 352699234
 Causa: Carga alta
