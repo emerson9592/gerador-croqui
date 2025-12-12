@@ -18,18 +18,20 @@ DEBUG_MODE = False
 
 # --- CONFIGURAÇÃO: BANCO DE DADOS DE TÉCNICOS (NOME -> RE) ---
 DB_TECNICOS = {
-    "aguinaldo": "1538837",
-    "alessandro": "7455011",
-    "cleiton": "7885997",
-    "emerson": "7896018",
-    "julio": "7456263",
-    "leandro": "7801963",
-    "pablo": "7876084",
-    "roger": "776287",
+    "aguinaldo": "0102060458",
+    "alessandro": "0102047065",
+    "cleiton": "0102059450",
+    "emerson": "0102059848",
+    "julio": "0102050030",
+    "leandro": "0102055139",
+    "pablo": "0102059303",
+    "roger": "0102054899",
     "leonardo": "8068992",
     "lucas": "Sem RE",
-    "joaquim": "Sem RE",
-    "marcos": "Sem RE",
+    "joaquim": "0102063826",
+    "marcos": "0124064676",
+    "Ruan": "0124064626",
+    "murilo": "0102063941",
     "wellington": "Sup. 1234"
 }
 
