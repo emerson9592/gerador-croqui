@@ -556,7 +556,7 @@ def generate():
     else:
         pp_list = []  # sem lançamento → 3 XC
 
-    codigo = parsed.get('codigo_obra') or f"doc_{random.randint(1000, 9999)}"
+    codigo = parsed.get('ta') or f"doc_{random.randint(1000, 9999)}"
     codigo = re.sub(r'[^\w\-]', '', codigo)
 
     overlay_path = OUTPUT_DIR / f"{codigo}_overlay.pdf"
