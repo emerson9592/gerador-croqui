@@ -499,35 +499,60 @@ INDEX_HTML = """
     <meta charset='utf-8'>
     <title>Gerador CROQUI</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #f0f2f5; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        textarea { width: 100%; height: 300px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: monospace; }
-        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 10px; }
-        button:hover { background: #0056b3; }
+   <style>
+    body { 
+        font-family: sans-serif; 
+        padding: 20px; 
+        background: #f0f2f5; 
+    }
+    .container { 
+        max-width: 800px; 
+        margin: 0 auto; 
+        background: white; 
+        padding: 30px; 
+        border-radius: 8px; 
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+    }
+    textarea.modelo {
+        width: 100%;
+        height: 350px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-family: monospace;
+        color: #555; /* cinza */
+    }
+    button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        margin-top: 10px;
+    }
+    button:hover { background: #0056b3; }
     </style>
 </head>
 <body>
     <div class="container">
         <h2>Gerador de Relatórios</h2>
-        <form method='post' action='/generate' target='_blank'>
-<textarea name='text'>T.A: 352699234
-Causa: Carga alta
-Endereço: Rua Larissa Raveli, 102-174
-Localidade: Sorocaba ES JAI AT GC
-Tronco: 193 PRIM 05 DIST 10
-Código de obra: 2025488798
-Executantes: Emerson, Pablo
-Veiculo: RVQ0G58
-Supervisor: Wellington
-Data: 12/11/2025
+        <<form method='post' action='/generate' target='_blank'>
+<textarea name='text' class='modelo'>
+T.A: 
+Causa: 
+Endereço: 
+Localidade:    ES:     AT: 
+Tronco: 
+Código de obra: 
+Executantes: 
+Veiculo: 
+Supervisor: 
+Data: 
 
 Tratativas:
-200 Metros 04 f.o lançado 
-01 PTRO
-08 Fusões
-04 Tubo Loose sem sangria
-01 Álcool isopropílico
-01 Fita isolante</textarea>
+</textarea>
             <br>
             <button type='submit'>Gerar e Visualizar PDF</button>
         </form>
@@ -556,7 +581,7 @@ def generate():
     else:
         pp_list = []  # sem lançamento → 3 XC
 
-    codigo = parsed.get('codigo_obra') or f"doc_{random.randint(1000, 9999)}"
+    codigo = parsed.get('ta') or f"doc_{random.randint(1000, 9999)}"
     codigo = re.sub(r'[^\w\-]', '', codigo)
 
     overlay_path = OUTPUT_DIR / f"{codigo}_overlay.pdf"
