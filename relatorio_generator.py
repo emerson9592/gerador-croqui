@@ -26,7 +26,7 @@ DB_TECNICOS = {
     "leandro": "0102055139",
     "pablo": "0102059303",
     "roger": "0102054899",
-    "leonardo": "8068992",
+    "leonardo": "0102063528",
     "lucas": "Sem RE",
     "joaquim": "0102063826",
     "marcos": "0124064676",
@@ -405,7 +405,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
 
         # Título
         c.setFont("Helvetica-Bold", 8)
-        c.drawString(box_x1 + 5, box_y1 + box_height_1 - 10, "Tratativas 1º ponto")
+        c.drawString(box_x1 + 5, box_y1 + box_height_1 - 10, "Tratativas E1")
 
         # Conteúdo
         c.setFont("Helvetica", 8)
@@ -430,7 +430,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         c.rect(box_x2, box_y2, box_width, box_height_2, fill=0)
 
         c.setFont("Helvetica-Bold", 8)
-        c.drawString(box_x2 + 5, box_y2 + box_height_2 - 10, "Tratativas 2º ponto")
+        c.drawString(box_x2 + 5, box_y2 + box_height_2 - 10, "Tratativas E2")
 
         c.setFont("Helvetica", 8)
         text_start_y2 = box_y2 + box_height_2 - title_height - 8
@@ -540,15 +540,18 @@ INDEX_HTML = """
         <h2>Gerador de Relatórios</h2>
         <<form method='post' action='/generate' target='_blank'>
 <textarea name='text' class='modelo'>
+<textarea name='text' class='modelo'>
 T.A: 
 Causa: 
 Endereço: 
-Localidade:    ES:     AT: 
+Localidade: 
+ES: 
+AT: 
 Tronco: 
 Código de obra: 
-Executantes: 
-Veiculo: 
-Supervisor: 
+Executantes: Emerson, 
+Veiculo: RVQ0G58
+Supervisor: Wellington
 Data: 
 
 Tratativas:
