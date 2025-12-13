@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, request, send_file
+from flask import Flask, render_template_string, request, send_file, send_from_directory, redirect, url_for
 from reportlab.pdfgen import canvas
 from reportlab.lib.colors import red, black
 from pdfrw import PdfReader, PdfWriter, PageMerge
@@ -166,7 +166,7 @@ def generate_pps(total_length, vt_each=15):
 
 
 # ----------------------------
-# 2b. Divisão de tratativas (nova função)
+# 2b. Divisão de tratativas
 # ----------------------------
 def dividir_tratativas(material_lines):
     """
@@ -221,7 +221,7 @@ def dividir_tratativas(material_lines):
         orig = item["orig"]
 
         # Lançamento
-        if "metr" in nome:
+        if any(f in nome for f in FILTRO_LANCAMENTO):
             p1.append(orig)
             continue
 
@@ -255,9 +255,18 @@ def dividir_tratativas(material_lines):
     return p1, p2
 
 
-
 # ----------------------------
-# 3. Geração do PDF (Overlay)
+# Input que indentifica lancamento
+# ----------------------------
+FILTRO_LANCAMENTO = [
+    "metr",
+    "lancado",
+    "lançado",
+    "lancamento",
+    "lançamento"
+]
+# ----------------------------
+# 3. Geração do PDF
 # ----------------------------
 def create_overlay(parsed, materials_raw, pp_list, overlay_path):
     if not os.path.exists(TEMPLATE_PDF):
@@ -363,12 +372,44 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         c.circle(mid_x, draw_y, 4, fill=1)
         c.drawString(mid_x - 8, draw_y - 20, "XC")
 
-        # VT NO MEIO
-        c.drawString(mid_x - 12, draw_y + 15, "VT 15m")
-
         # XC Fim
         c.circle(right_x, draw_y, 4, fill=1)
         c.drawString(right_x - 8, draw_y - 20, "Fim")
+        # ===== CAIXA ÚNICA DE TRATATIVAS (SEM LANÇAMENTO) =====
+        c.setFont("Helvetica", 8)
+
+        offset = 35
+        line_height = 10
+        padding = 15
+        title_height = 12
+        box_width = 220
+
+        total_lines = len(materials_raw)
+        box_height = padding + title_height + (total_lines * line_height)
+
+        # posição do XC do meio
+        center_x = mid_x
+
+        box_x = center_x - (box_width / 2)
+        box_y = draw_y + offset
+
+        # Caixa
+        c.rect(box_x, box_y, box_width, box_height, fill=0)
+
+        # Título
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(box_x + 5, box_y + box_height - 10, "Tratativas")
+
+        # Conteúdo
+        c.setFont("Helvetica", 8)
+        text_start_y = box_y + box_height - title_height - 8
+
+        for i, item in enumerate(materials_raw):
+            c.drawString(box_x + 5, text_start_y - (i * line_height), item)
+
+        # Seta (XC do meio → Caixa)
+        c.line(center_x, draw_y, center_x, box_y)
+        c.drawString(center_x - 4, box_y - 10, "↑")
 
         c.showPage()
         c.save()
@@ -384,7 +425,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         ponto1_list, ponto2_list = dividir_tratativas(materials_raw)
 
         c.setFont("Helvetica", 8)
-        offset = 35  # distância acima da linha
+        offset = 30  # distância acima da linha
 
         # ===== CONFIGURAÇÃO DA CAIXA =====
         line_height = 10
@@ -535,11 +576,58 @@ Tratativas:
 </body>
 </html>
 """
-
-
 @app.route('/')
 def index():
     return render_template_string(INDEX_HTML)
+
+@app.route('/view/<filename>')
+def view_pdf(filename):
+    return render_template_string("""
+    <!doctype html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Visualizar Relatório</title>
+        <style>
+            body { font-family: Arial; margin: 0; background: #f0f2f5; }
+            .topbar {
+                background: #fff;
+                padding: 10px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            }
+            .topbar a {
+                padding: 8px 14px;
+                background: #007bff;
+                color: white;
+                text-decoration: none;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+            iframe {
+                width: 100%;
+                height: calc(100vh - 60px);
+                border: none;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="topbar">
+            <a href="/download/{{ filename }}">⬇ Baixar PDF</a>
+        </div>
+
+        <iframe src="/outputs/{{ filename }}"></iframe>
+    </body>
+    </html>
+    """, filename=filename)
+
+
+@app.route('/download/<filename>')
+def download(filename):
+    return send_file(OUTPUT_DIR / filename, as_attachment=True)
+
+@app.route('/outputs/<path:filename>')
+def outputs(filename):
+    return send_from_directory(OUTPUT_DIR, filename)
 
 
 @app.route('/generate', methods=['POST'])
@@ -551,10 +639,7 @@ def generate():
     parsed, material_lines = extract_fields(text)
     total_len = detect_launch(material_lines)
 
-    if total_len:
-        pp_list = generate_pps(total_len)
-    else:
-        pp_list = []  # sem lançamento → 3 XC
+    pp_list = generate_pps(total_len) if total_len else []
 
     codigo = parsed.get('ta') or f"doc_{random.randint(1000, 9999)}"
     codigo = re.sub(r'[^\w\-]', '', codigo)
@@ -565,7 +650,9 @@ def generate():
     create_overlay(parsed, material_lines, pp_list, overlay_path)
     merge_overlay(overlay_path, out_pdf)
 
-    return send_file(str(out_pdf), as_attachment=False)
+    filename = out_pdf.name
+
+    return redirect(url_for('view_pdf', filename=filename))
 
 
 if __name__ == '__main__':
@@ -573,3 +660,4 @@ if __name__ == '__main__':
         print(f"AVISO: {TEMPLATE_PDF} não encontrado. Gerando PDF em branco para teste.")
 
     app.run(debug=True, port=5000)
+
