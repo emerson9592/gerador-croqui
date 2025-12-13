@@ -555,7 +555,7 @@ INDEX_HTML = """
 Causa: Carga alta
 Endereço: Rua Larissa Raveli, 102-174
 Localidade: Sorocaba ES JAI AT GC
-Tronco: 193 PRIM 05 DIST 10
+Tronco: 193
 Código de obra: 2025488798
 Executantes: Emerson, Pablo
 Veiculo: RVQ0G58
