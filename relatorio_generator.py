@@ -317,7 +317,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
             put_xy(f"re_{i}", item['re'], size=9,
                    manual_coords=(EXEC_CONFIG['re_x'], current_y))
 
-    # Materiais (rodapé)
+    # Materiais gasto
     mxp, myp = COORDS['materials_block']
     mx, my = pct_to_pt(mxp, myp, width_pt, height_pt)
     c.setFont('Helvetica', 8)
@@ -337,7 +337,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
     c.setDash([])
     c.setFont('Helvetica-Bold', 10)
 
-    # --- Exibir endereço centralizado acima do croqui (se houver)
+    # Endereço no desenho
     if parsed.get('endereco'):
         addr_text = parsed['endereco']
         c.setFont('Helvetica-Bold', 10)
@@ -405,7 +405,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
 
         # Título
         c.setFont("Helvetica-Bold", 8)
-        c.drawString(box_x1 + 5, box_y1 + box_height_1 - 10, "Tratativas 1º ponto")
+        c.drawString(box_x1 + 5, box_y1 + box_height_1 - 10, "Tratativas E1")
 
         # Conteúdo
         c.setFont("Helvetica", 8)
@@ -430,7 +430,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         c.rect(box_x2, box_y2, box_width, box_height_2, fill=0)
 
         c.setFont("Helvetica-Bold", 8)
-        c.drawString(box_x2 + 5, box_y2 + box_height_2 - 10, "Tratativas 2º ponto")
+        c.drawString(box_x2 + 5, box_y2 + box_height_2 - 10, "Tratativas E2")
 
         c.setFont("Helvetica", 8)
         text_start_y2 = box_y2 + box_height_2 - title_height - 8
