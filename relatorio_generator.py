@@ -18,21 +18,47 @@ DEBUG_MODE = False
 
 # --- CONFIGURAÇÃO: BANCO DE DADOS DE TÉCNICOS (NOME -> RE) ---
 DB_TECNICOS = {
-    "aguinaldo": "0102060458",
-    "alessandro": "0102047065",
-    "cleiton": "0102059450",
-    "emerson": "0102059848",
-    "julio": "0102050030",
-    "leandro": "0102055139",
-    "pablo": "0102059303",
-    "roger": "0102054899",
-    "leonardo": "0102063528",
-    "lucas": "Sem RE",
-    "joaquim": "0102063826",
-    "marcos": "0124064676",
-    "Ruan": "0124064626",
-    "murilo": "0102063941",
-    "wellington": "Sup. 1234"
+    "agnaldo brisola": "0102060458",
+    "aguilson lucas": "0102062737",
+    "alan almeida": "0102062248",
+    "alan bruno": "0118065433",
+    "alessandro morais": "0102047065",
+    "alex feitosa": "0102064113",
+    "caio rodrigo": "0118064757",
+    "cleiton benfica": "0102059450",
+    "diogo primo": "0102056374",
+    "edmilson santos": "0102060449",
+    "edson rosa": "0118064670",
+    "elias fonseca": "0118064645",
+    "emerson silva": "0102059848",
+    "erickson leme": "0102053031",
+    "felipe fontoura": "102062731",
+    "felipe nunes": "0102063906",
+    "fernando aparecido": "0102060636",
+    "henrique lima": "102063911",
+    "joao gabriel": "0118065540",
+    "joaquim vaz": "0102063826",
+    "jonathan santos": "0102060445",
+    "jose gabriel": "0102060418",
+    "julio cesar": "102060638",
+    "julio moraes": "0102050030",
+    "jurandi wesley": "0118064679",
+    "kelvin gomes": "0102062255",
+    "leandro junior": "0102055139",
+    "leonardo junior": "0102063528",
+    "lucas amorim": "0118064689",
+    "marcio barbosa": "0102062727",
+    "marco lucca": "0102062770",
+    "marcos santos": "0124064676",
+    "mauricio oliveira": "0118064616",
+    "murilo graca": "0102063941",
+    "pablo antonio": "0102059303",
+    "roger gomes": "0102054899",
+    "ruan caetano": "0124064626",
+    "ruan vinicius": "0102064131",
+    "talissa andrade": "0102044461",
+    "welington batista": "0102047056",
+    "wendel ribeiro": "0102064177",
 }
 
 # ----------------------------
@@ -79,8 +105,8 @@ def pct_to_pt(xpct, ypct, width_pt, height_pt):
 
 
 def get_re_for_name(name):
-    first_name = name.strip().split(' ')[0].lower()
-    return DB_TECNICOS.get(first_name, "")
+    full_name = name.strip().lower()
+    return DB_TECNICOS.get(full_name, "")
 
 
 def extract_fields(text):
