@@ -582,48 +582,7 @@ def index():
 
 @app.route('/view/<filename>')
 def view_pdf(filename):
-    return render_template_string("""
-    <!doctype html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>Visualizar Relatório</title>
-        <style>
-            body { font-family: Arial; margin: 0; background: #f0f2f5; }
-            .topbar {
-                background: #fff;
-                padding: 10px;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            }
-            .topbar a {
-                padding: 8px 14px;
-                background: #007bff;
-                color: white;
-                text-decoration: none;
-                border-radius: 4px;
-                font-size: 14px;
-            }
-            iframe {
-                width: 100%;
-                height: calc(100vh - 60px);
-                border: none;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="topbar">
-            <a href="/download/{{ filename }}">⬇ Baixar PDF</a>
-        </div>
-
-        <iframe src="/outputs/{{ filename }}"></iframe>
-    </body>
-    </html>
-    """, filename=filename)
-
-
-@app.route('/download/<filename>')
-def download(filename):
-    return send_file(OUTPUT_DIR / filename, as_attachment=True)
+    return redirect(url_for('outputs', filename=filename))
 
 @app.route('/outputs/<path:filename>')
 def outputs(filename):
