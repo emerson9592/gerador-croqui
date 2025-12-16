@@ -464,7 +464,7 @@ h2 { color:#333; margin-bottom:10px; }
 <body>
 <div class="container">
     <h2>Gerador de Croquis Automático</h2>
-    <p class="info">Cole abaixo o texto do encerramento <strong>GENESIS</strong>.</p>
+    <p class="info">Cole abaixo o encerramento do <strong>GENESIS</strong>.</p>
     <form method="post" action="/preencher">
         <textarea name="raw_text" placeholder="Cole aqui seu encerramento..."></textarea>
         <br>
