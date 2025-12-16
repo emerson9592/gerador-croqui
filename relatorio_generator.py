@@ -115,9 +115,10 @@ def extract_fields(text):
         (r"c[oó]digo\s+de\s+obra\s*[:\-]?\s*([0-9]{6,})", 'codigo_obra'),
         (r"causa\s*[:\-]?\s*(.+)", 'causa'),
         (r"end[eê]re[cç]o\s*[:\-]?\s*(.+)", 'endereco'),
+        (r"localidade\s*[:\-]?\s*(.+)", 'localidade'),
+        (r"es\s*[:\-]?\s*(.+)", 'es'),
+        (r"at\s*[:\-]?\s*(.+)", 'at'),
         (r"tronco\s*[:\-]?\s*([0-9]+)", 'tronco'),
-        (r"prim\s*[:\-]?\s*(.+)", 'prim'),
-        (r"dist\.?\s*[:\-]?\s*(.+)", 'dist'),
         (r"executantes?\s*[:\-]?\s*(.+)", 'executantes_raw'),
         (r"ve[ií]culo\s*[:\-]?\s*(\S+)", 'veiculo'),
         (r"data\s*[:\-]?\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})", 'data'),
@@ -131,18 +132,6 @@ def extract_fields(text):
         m = re.search(pattern, joined, re.IGNORECASE)
         if m:
             data[key] = m.group(1).strip()
-
-    localidade_match = re.search(r"localidade\s*[:\-]?\s*(.*?)(?:\s+ES\s+|$)", joined, re.IGNORECASE)
-    if localidade_match:
-        data['localidade'] = localidade_match.group(1).strip()
-
-    es_match = re.search(r"\bES\s*[:\-]?\s*(\S+)", joined, re.IGNORECASE)
-    if es_match:
-        data['es'] = es_match.group(1).strip()
-
-    at_match = re.search(r"\bAT\s*[:\-]?\s*(\S+)", joined, re.IGNORECASE)
-    if at_match:
-        data['at'] = at_match.group(1).strip()
 
     if not data.get('prim'):
         prim_m = re.search(r"\bPRIM\s*[:\-]?\s*(\S+)", joined, re.IGNORECASE)
@@ -563,48 +552,166 @@ INDEX_HTML = """
 <!doctype html>
 <html>
 <head>
-    <meta charset='utf-8'>
-    <title>Gerador CROQUI</title>
-    <style>
-        body { font-family: sans-serif; padding: 20px; background: #f0f2f5; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        textarea { width: 100%; height: 300px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: monospace; }
-        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 10px; }
-        button:hover { background: #0056b3; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h2>Gerador de Relatórios</h2>
-        <form method='post' action='/generate' target='_blank'>
-<textarea name='text'>T.A: 352699234
-Causa: Carga alta
-Endereço: Rua Larissa Raveli, 102-174
-Localidade: Sorocaba ES JAI AT GC
-Tronco: 193
-Código de obra: 2025488798
-Executantes: Emerson, Pablo
-Veiculo: RVQ0G58
-Supervisor: Wellington
-Data: 12/11/2025
+<meta charset="utf-8">
+<title>Gerador CROQUI</title>
+<style>
+body { font-family: Arial, sans-serif; background:#f0f2f5; padding:20px }
+.container { max-width:900px; margin:auto; background:#fff; padding:25px; border-radius:8px }
+input, textarea {
+    width:100%;
+    padding:10px;
+    margin-bottom:10px;
+    border:1px solid #999;
+    border-radius:4px;
+    font-size:14px;
+}
+textarea { height:180px; font-family:monospace }
+button {
+    padding:12px 25px;
+    font-size:16px;
+    background:#007bff;
+    color:#fff;
+    border:none;
+    border-radius:4px;
+    cursor:pointer;
+}
+button:hover { background:#0056b3 }
+h3 { margin-top:20px }
 
-Tratativas:
-200 Metros 04 f.o lançado 
+.tag {
+    display: inline-block;
+    background: #007bff;
+    color: white;
+    padding: 5px 10px;
+    border-radius: 15px;
+    margin: 4px;
+    font-size: 13px;
+}
+.tag span {
+    margin-left: 8px;
+    cursor: pointer;
+    font-weight: bold;
+}
+#exec-list div:hover {
+    background: #eee;
+}
+
+</style>
+</head>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+  let tecnicos = [];
+  let selecionados = [];
+
+  fetch('/tecnicos')
+    .then(r => r.json())
+    .then(d => tecnicos = d);
+
+  const input = document.getElementById('exec-input');
+  const list = document.getElementById('exec-list');
+  const hidden = document.getElementById('exec-hidden');
+  const tagsBox = document.getElementById('exec-tags');
+
+  function atualizarHidden() {
+    hidden.value = selecionados.join(', ');
+  }
+
+  function renderTags() {
+    tagsBox.innerHTML = '';
+    selecionados.forEach(nome => {
+      const tag = document.createElement('div');
+      tag.className = 'tag';
+      tag.innerHTML = `${nome} <span>&times;</span>`;
+
+      tag.querySelector('span').onclick = () => {
+        selecionados = selecionados.filter(n => n !== nome);
+        atualizarHidden();
+        renderTags();
+      };
+
+      tagsBox.appendChild(tag);
+    });
+  }
+
+  input.addEventListener('input', () => {
+    const v = input.value.toLowerCase();
+    list.innerHTML = '';
+    if (!v) return;
+
+    tecnicos
+      .filter(t => t.includes(v) && !selecionados.includes(t))
+      .slice(0, 6)
+      .forEach(t => {
+        const div = document.createElement('div');
+        div.textContent = t;
+        div.style.cursor = 'pointer';
+        div.style.padding = '6px';
+
+        div.onclick = () => {
+          selecionados.push(t);
+          atualizarHidden();
+          renderTags();
+          input.value = '';
+          list.innerHTML = '';
+        };
+
+        list.appendChild(div);
+      });
+  });
+
+});
+</script>
+
+
+<body>
+<div class="container">
+<form method="post" action="/generate" target="_blank">
+
+<input name="ta" placeholder="T.A">
+<input name="causa" placeholder="Causa">
+<input name="endereco" placeholder="Endereço">
+<input name="localidade" placeholder="Localidade">
+<input name="es" placeholder="ES">
+<input name="at" placeholder="AT">
+<input name="tronco" placeholder="Tronco">
+<input name="codigo_obra" placeholder="Código de obra">
+<input name="veiculo" placeholder="Veículo">
+<input name="supervisor" value="Wellington">
+<input name="data" placeholder="Data">
+
+<h3>Executantes</h3>
+
+<input id="exec-input" placeholder="Digite o nome do técnico">
+<div id="exec-list"></div>
+
+<div id="exec-tags" style="margin:8px 0;"></div>
+
+<input type="hidden" name="executantes" id="exec-hidden">
+
+
+<h3>Itens / Tratativas</h3>
+<textarea name="itens" placeholder="Ex:
+200 Metros FO lançado
 01 PTRO
 08 Fusões
-04 Tubo Loose sem sangria
-01 Álcool isopropílico
-01 Fita isolante</textarea>
-            <br>
-            <button type='submit'>Gerar e Visualizar PDF</button>
-        </form>
-    </div>
+04 Tubo Loose"></textarea>
+
+<button type="submit">Gerar PDF</button>
+</form>
+</div>
 </body>
 </html>
 """
+
 @app.route('/')
 def index():
     return render_template_string(INDEX_HTML)
+
+@app.route('/tecnicos')
+def tecnicos():
+    return list(DB_TECNICOS.keys())
 
 @app.route('/view/<filename>')
 def view_pdf(filename):
@@ -617,13 +724,27 @@ def outputs(filename):
 
 @app.route('/generate', methods=['POST'])
 def generate():
-    text = request.form.get('text', '')
-    if not text.strip():
-        return "Erro: Texto vazio", 400
+    texto_final = f"""
+T.A: {request.form.get('ta','')}
+Causa: {request.form.get('causa','')}
+Endereço: {request.form.get('endereco','')}
+Localidade: {request.form.get('localidade','')}
+ES: {request.form.get('es','')}
+AT: {request.form.get('at','')}
+Tronco: {request.form.get('tronco','')}
+Código de obra: {request.form.get('codigo_obra','')}
+Executantes: {request.form.get('executantes','')}
+Veiculo: {request.form.get('veiculo','')}
+Supervisor: {request.form.get('supervisor','')}
+Data: {request.form.get('data','')}
 
-    parsed, material_lines = extract_fields(text)
+Tratativas:
+{request.form.get('itens','')}
+"""
+
+    # === PROCESSAMENTO NORMAL (igual ao original) ===
+    parsed, material_lines = extract_fields(texto_final)
     total_len = detect_launch(material_lines)
-
     pp_list = generate_pps(total_len) if total_len else []
 
     codigo = parsed.get('ta') or f"doc_{random.randint(1000, 9999)}"
@@ -636,8 +757,8 @@ def generate():
     merge_overlay(overlay_path, out_pdf)
 
     filename = out_pdf.name
-
     return redirect(url_for('view_pdf', filename=filename))
+
 
 
 if __name__ == '__main__':
@@ -645,4 +766,3 @@ if __name__ == '__main__':
         print(f"AVISO: {TEMPLATE_PDF} não encontrado. Gerando PDF em branco para teste.")
 
     app.run(debug=True, port=5000)
-
