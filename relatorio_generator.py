@@ -12,7 +12,7 @@ TEMPLATE_PDF = "CROQUI.pdf"
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# --- CONFIGURAÇÃO: BANCO DE DADOS DE TÉCNICOS ---
+# dados dos tecnicos
 DB_TECNICOS = {
     "agnaldo brisola": "0102060458",
     "aguinaldo": "0102060458",
@@ -64,9 +64,8 @@ DB_TECNICOS = {
     "wendel ribeiro": "0102064177",
 }
 
-# ----------------------------
-# Configurações de Posição
-# ----------------------------
+#  coordenadas
+
 COORDS = {
     'codigo_obra': (0.18, 0.039),
     'ta': (0.20, 0.182),
@@ -94,9 +93,8 @@ EXEC_CONFIG = {
 FILTRO_LANCAMENTO = ["metr", "lancado", "lançado", "lancamento", "lançamento"]
 
 
-# ----------------------------
-# Funções Auxiliares (Parsing)
-# ----------------------------
+# Funções Auxiliares Parsing
+
 def pct_to_pt(xpct, ypct, width_pt, height_pt):
     return xpct * width_pt, ypct * height_pt
 
@@ -111,14 +109,14 @@ def extract_fields(text):
 
     text = text.replace('\r\n', '\n').strip()
 
-    # 1. SIGLAS ES.AT
+    # 1. siglas ES e AT
     match_sigla = re.search(r"\b(?!(?:com|net|org|gov|www|vivo|http)\b)([a-zA-Z]{3})\.([a-zA-Z]{2})\b", text,
                             re.IGNORECASE)
     if match_sigla:
         data['es'] = match_sigla.group(1).upper()
         data['at'] = match_sigla.group(2).upper()
 
-    # 2. HEADER
+    # 2. cabeçalho
     match_header = re.search(r"(\d{8,})\s*-\s*TA\s*(\d{8,})", text)
     if match_header:
         data['codigo_obra'] = match_header.group(1)
@@ -129,7 +127,7 @@ def extract_fields(text):
         m_sgm = re.search(r"(?:SGM|Obra)\s*[:\-]?\s*(\d{6,})", text, re.IGNORECASE)
         if m_sgm: data['codigo_obra'] = m_sgm.group(1)
 
-    # 3. CAMPOS GERAIS
+    # 3. causa/localidade/veiculo/data
     patterns = [
         (r"(?:causa|motivo)\s*[:;\-]?\s*(.+)", 'causa'),
         (r"(?:localidade|cidade)\s*[:;\-]?\s*(.+)", 'localidade'),
@@ -143,7 +141,7 @@ def extract_fields(text):
             if m:
                 data[key] = m.group(1).strip().rstrip('.,;')
 
-    # 4. ENDEREÇO
+    # 4. endereço
     raw_address = ""
     m_end = re.search(r"(?m)^.*?(?:end[eê]re[cç]o|localiza[cç][aã]o)\s*[:;\-]?\s*(.+)", text, re.IGNORECASE)
     if m_end:
@@ -170,7 +168,7 @@ def extract_fields(text):
         else:
             data['endereco'] = raw_address
 
-    # 5. TRONCO / CABO
+    # 5. Tronco
     m_tr = re.search(r"TR\s*#?\s*(\d+)", text, re.IGNORECASE)
     if m_tr:
         data['tronco'] = m_tr.group(1)
@@ -180,7 +178,7 @@ def extract_fields(text):
 
     data['supervisor'] = "Wellington"
 
-    # 6. TÉCNICOS
+    # 6. Tecnicos
     exec_list = []
     text_lower = text.lower()
     nomes_encontrados = set()
@@ -202,7 +200,7 @@ def extract_fields(text):
 
     data['executantes_parsed'] = final_execs
 
-    # 7. TRATATIVAS (Atualizado para lidar com "/" e textos grudados)
+    # 7. Tratativas
     raw_materials = ""
     match_genesis = re.search(r"Ação de Recuperação:[\s\S]*?(?=\nMaterial|\nData|\Z)", text, re.IGNORECASE)
     match_manual = re.search(r"O QUE FOI FEITO.*:([\s\S]*?)(?=\n\d+\)|Material|\Z)", text, re.IGNORECASE)
@@ -212,7 +210,7 @@ def extract_fields(text):
     elif match_manual:
         raw_materials = match_manual.group(1)
     else:
-        # Fallback para linhas soltas se não achar headers
+        # Fallback
         lines = [l.strip() for l in text.splitlines() if l.strip()]
         temp_list = []
         for l in lines:
@@ -222,12 +220,12 @@ def extract_fields(text):
                     temp_list.append(l)
         raw_materials = "\n".join(temp_list)
 
-    # PROCESSAMENTO FINAL DAS TRATATIVAS (Quebra de linha nas barras e numeros grudados)
+    # Processamento final das tratativas
     if raw_materials:
         # 1. Substitui barras por quebra de linha
         raw_materials = raw_materials.replace('/', '\n')
 
-        # 2. Corrige números grudados (ex: "fusões04" -> "fusões\n04")
+        # 2. Correcao de números grudados
         # Procura letra seguida imediatamente de 2 digitos
         raw_materials = re.sub(r"([a-zA-Zçãõéáíóú])(\d{2})", r"\1\n\2", raw_materials)
 
@@ -301,10 +299,8 @@ def dividir_tratativas(material_lines):
         p1.append(orig)
     return p1, p2
 
-
-# ----------------------------
 # Geração do PDF
-# ----------------------------
+
 def create_overlay(parsed, materials_raw, pp_list, overlay_path):
     if not os.path.exists(TEMPLATE_PDF):
         width_pt, height_pt = 595.27, 841.89
@@ -444,10 +440,7 @@ def merge_overlay(overlay_path, out_path):
         merger.add(overlay.pages[0]).render()
     PdfWriter(str(out_path), trailer=template).write()
 
-
-# ----------------------------
-# TELAS HTML (TEMPLATES)
-# ----------------------------
+# TELAS HTML TEMPLATES
 
 PASTE_HTML = """
 <!doctype html>
@@ -625,10 +618,7 @@ document.addEventListener('DOMContentLoaded', () => {
 </html>
 """
 
-
-# ----------------------------
 # ROTAS FLASK
-# ----------------------------
 
 @app.route('/')
 def index():
@@ -688,7 +678,7 @@ def generate():
     Supervisor: {request.form.get('supervisor', '')}
     """
 
-    # Para executantes, pegamos do hidden input que o JS preencheu
+    # executante pegamos do hidden input que o JS preencheu
     execs_string = request.form.get('executantes', '')
     exec_list = []
     if execs_string:
@@ -703,7 +693,7 @@ def generate():
     itens_raw = request.form.get('itens', '')
     material_lines = [l.strip() for l in itens_raw.splitlines() if l.strip()]
 
-    # Monta objeto final para o criador de PDF
+    # PDF
     parsed = {
         'ta': request.form.get('ta', ''),
         'codigo_obra': request.form.get('codigo_obra', ''),
