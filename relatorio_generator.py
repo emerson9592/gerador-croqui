@@ -1,6 +1,5 @@
-from flask import Flask, render_template_string, request, send_file, send_from_directory, redirect, url_for
+from flask import Flask, render_template_string, request, send_from_directory, redirect, url_for
 from reportlab.pdfgen import canvas
-from reportlab.lib.colors import red, black
 from pdfrw import PdfReader, PdfWriter, PageMerge
 from pathlib import Path
 import re, random, os
@@ -13,12 +12,11 @@ TEMPLATE_PDF = "CROQUI.pdf"
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# --- CONFIGURAÇÃO: MODO DE CALIBRAÇÃO ---
-DEBUG_MODE = False
-
-# --- CONFIGURAÇÃO: BANCO DE DADOS DE TÉCNICOS (NOME -> RE) ---
+# --- CONFIGURAÇÃO: BANCO DE DADOS DE TÉCNICOS ---
 DB_TECNICOS = {
     "agnaldo brisola": "0102060458",
+    "aguinaldo": "0102060458",
+    "agnaldo": "0102060458",
     "aguilson lucas": "0102062737",
     "alan almeida": "0102062248",
     "alan bruno": "0118065433",
@@ -31,6 +29,8 @@ DB_TECNICOS = {
     "edson rosa": "0118064670",
     "elias fonseca": "0118064645",
     "emerson silva": "0102059848",
+    "emerson pereira da silva": "0102059848",
+    "emerson": "0102059848",
     "erickson leme": "0102053031",
     "felipe fontoura": "102062731",
     "felipe nunes": "0102063906",
@@ -46,13 +46,16 @@ DB_TECNICOS = {
     "kelvin gomes": "0102062255",
     "leandro junior": "0102055139",
     "leonardo junior": "0102063528",
+    "leonardo": "0102063528",
     "lucas amorim": "0118064689",
     "marcio barbosa": "0102062727",
     "marco lucca": "0102062770",
     "marcos santos": "0124064676",
+    "marcos": "0124064676",
     "mauricio oliveira": "0118064616",
     "murilo graca": "0102063941",
     "pablo antonio": "0102059303",
+    "pablo": "0102059303",
     "roger gomes": "0102054899",
     "ruan caetano": "0124064626",
     "ruan vinicius": "0102064131",
@@ -62,28 +65,20 @@ DB_TECNICOS = {
 }
 
 # ----------------------------
-# 1. Configurações de Posição
+# Configurações de Posição
 # ----------------------------
 COORDS = {
     'codigo_obra': (0.18, 0.039),
     'ta': (0.20, 0.182),
-
     'causa': (0.17, 0.152),
-
     'endereco': (0.17, 0.125),
-
     'localidade': (0.11, 0.096),
     'es': (0.28, 0.096),
     'at': (0.34, 0.096),
-
     'tronco': (0.10, 0.067),
-
-    'executantes': (0.47, 0.212),
-
     'veiculo': (0.47, 0.040),
     'supervisor': (0.63, 0.040),
     'data': (0.83, 0.049),
-
     'materials_block': (0.045, 0.33),
     'croqui_rect': (0.02, 0.65, 0.95, 0.90)
 }
@@ -96,71 +91,151 @@ EXEC_CONFIG = {
     'max_rows': 6
 }
 
+FILTRO_LANCAMENTO = ["metr", "lancado", "lançado", "lancamento", "lançamento"]
+
 
 # ----------------------------
-# 2. Funções Auxiliares
+# Funções Auxiliares (Parsing)
 # ----------------------------
 def pct_to_pt(xpct, ypct, width_pt, height_pt):
     return xpct * width_pt, ypct * height_pt
 
 
-def get_re_for_name(name):
-    full_name = name.strip().lower()
-    return DB_TECNICOS.get(full_name, "")
-
-
 def extract_fields(text):
-    kw_fields = [
-        (r"t\.?a\.?\s*[:\-]?\s*([0-9]{5,})", 'ta'),
-        (r"c[oó]digo\s+de\s+obra\s*[:\-]?\s*([0-9]{6,})", 'codigo_obra'),
-        (r"causa\s*[:\-]?\s*(.+)", 'causa'),
-        (r"end[eê]re[cç]o\s*[:\-]?\s*(.+)", 'endereco'),
-        (r"localidade\s*[:\-]?\s*(.+)", 'localidade'),
-        (r"es\s*[:\-]?\s*(.+)", 'es'),
-        (r"at\s*[:\-]?\s*(.+)", 'at'),
-        (r"tronco\s*[:\-]?\s*([0-9]+)", 'tronco'),
-        (r"executantes?\s*[:\-]?\s*(.+)", 'executantes_raw'),
-        (r"ve[ií]culo\s*[:\-]?\s*(\S+)", 'veiculo'),
-        (r"data\s*[:\-]?\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})", 'data'),
+    """
+    Função principal de extração refinada.
+    """
+    data = {key: '' for key in ['ta', 'codigo_obra', 'causa', 'endereco',
+                                'localidade', 'es', 'at', 'tronco',
+                                'veiculo', 'data', 'supervisor']}
+
+    text = text.replace('\r\n', '\n').strip()
+
+    # 1. SIGLAS ES.AT
+    match_sigla = re.search(r"\b(?!(?:com|net|org|gov|www|vivo|http)\b)([a-zA-Z]{3})\.([a-zA-Z]{2})\b", text,
+                            re.IGNORECASE)
+    if match_sigla:
+        data['es'] = match_sigla.group(1).upper()
+        data['at'] = match_sigla.group(2).upper()
+
+    # 2. HEADER
+    match_header = re.search(r"(\d{8,})\s*-\s*TA\s*(\d{8,})", text)
+    if match_header:
+        data['codigo_obra'] = match_header.group(1)
+        data['ta'] = match_header.group(2)
+    else:
+        m_ta = re.search(r"TA\s*[:\-]?\s*(\d{5,})", text, re.IGNORECASE)
+        if m_ta: data['ta'] = m_ta.group(1)
+        m_sgm = re.search(r"(?:SGM|Obra)\s*[:\-]?\s*(\d{6,})", text, re.IGNORECASE)
+        if m_sgm: data['codigo_obra'] = m_sgm.group(1)
+
+    # 3. CAMPOS GERAIS
+    patterns = [
+        (r"(?:causa|motivo)\s*[:;\-]?\s*(.+)", 'causa'),
+        (r"(?:localidade|cidade)\s*[:;\-]?\s*(.+)", 'localidade'),
+        (r"ve[ií]culo\s*[:;\-]?\s*(\S+)", 'veiculo'),
+        (r"data\s*[:;\-]?\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})", 'data'),
     ]
 
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
-    joined = "\n".join(lines)
-    data = {key: '' for _, key in kw_fields}
+    for pattern, key in patterns:
+        if not data[key]:
+            m = re.search(r"(?m)^.*?" + pattern, text, re.IGNORECASE)
+            if m:
+                data[key] = m.group(1).strip().rstrip('.,;')
 
-    for pattern, key in kw_fields:
-        m = re.search(pattern, joined, re.IGNORECASE)
-        if m:
-            data[key] = m.group(1).strip()
+    # 4. ENDEREÇO
+    raw_address = ""
+    m_end = re.search(r"(?m)^.*?(?:end[eê]re[cç]o|localiza[cç][aã]o)\s*[:;\-]?\s*(.+)", text, re.IGNORECASE)
+    if m_end:
+        raw_address = m_end.group(1).strip()
+    else:
+        tipos_logradouro = r"(?:R\.|Rua|Av\.|Av|Avenida|Estr\.|Estrada|Rod\.|Rodovia|Tv\.|Travessa|Al\.|Alameda|Praça|Pç\.)"
+        m_street = re.search(r"(?m)^\s*(?:\d+\)\s*)?(" + tipos_logradouro + r"\s+.+)", text, re.IGNORECASE)
+        if m_street:
+            raw_address = m_street.group(1).strip()
 
-    if not data.get('prim'):
-        prim_m = re.search(r"\bPRIM\s*[:\-]?\s*(\S+)", joined, re.IGNORECASE)
-        if prim_m:
-            data['prim'] = prim_m.group(1)
+    if raw_address:
+        if not data['localidade']:
+            m_city = re.search(r"([A-Za-zÀ-ÿ\s]+)\s*[-/]\s*[A-Z]{2}\b", raw_address)
+            if m_city:
+                city_raw = m_city.group(1).strip()
+                city_clean = re.sub(r"^[,.\-\s]+", "", city_raw)
+                if "," in city_clean:
+                    city_clean = city_clean.split(",")[-1].strip()
+                data['localidade'] = city_clean
 
-    if not data.get('dist'):
-        dist_m = re.search(r"\bDIST\.?\s*[:\-]?\s*(\S+)", joined, re.IGNORECASE)
-        if dist_m:
-            data['dist'] = dist_m.group(1)
+        m_short_addr = re.match(r"^(.*?,\s*\d+)", raw_address)
+        if m_short_addr:
+            data['endereco'] = m_short_addr.group(1)
+        else:
+            data['endereco'] = raw_address
+
+    # 5. TRONCO / CABO
+    m_tr = re.search(r"TR\s*#?\s*(\d+)", text, re.IGNORECASE)
+    if m_tr:
+        data['tronco'] = m_tr.group(1)
+    elif not data['tronco']:
+        m_tr_old = re.search(r"tronco\s*[:;\-]?\s*([0-9]+)", text, re.IGNORECASE)
+        if m_tr_old: data['tronco'] = m_tr_old.group(1)
 
     data['supervisor'] = "Wellington"
 
-    exec_raw = data.get('executantes_raw', '')
-    parts = re.split(r'[;,]|\s+e\s+', exec_raw)
+    # 6. TÉCNICOS
     exec_list = []
-    for p in parts:
-        clean_name = p.strip()
-        if clean_name:
-            re_code = get_re_for_name(clean_name)
-            exec_list.append({'name': clean_name, 're': re_code})
-    data['executantes_parsed'] = exec_list
+    text_lower = text.lower()
+    nomes_encontrados = set()
 
-    if "Tratativas:" in text:
-        material_lines = text.split("Tratativas:")[1].strip().splitlines()
+    for nome_db, re_code in DB_TECNICOS.items():
+        if re.search(r"\b" + re.escape(nome_db) + r"\b", text_lower):
+            if nome_db not in nomes_encontrados:
+                nomes_encontrados.add(nome_db)
+                exec_list.append({'name': nome_db, 're': re_code})
+
+    final_execs = []
+    nomes_ordenados = sorted(list(nomes_encontrados), key=len, reverse=True)
+    processados = set()
+    for nome in nomes_ordenados:
+        if any(nome in maior for maior in processados):
+            continue
+        processados.add(nome)
+        final_execs.append({'name': nome, 're': DB_TECNICOS[nome]})
+
+    data['executantes_parsed'] = final_execs
+
+    # 7. TRATATIVAS (Atualizado para lidar com "/" e textos grudados)
+    raw_materials = ""
+    match_genesis = re.search(r"Ação de Recuperação:[\s\S]*?(?=\nMaterial|\nData|\Z)", text, re.IGNORECASE)
+    match_manual = re.search(r"O QUE FOI FEITO.*:([\s\S]*?)(?=\n\d+\)|Material|\Z)", text, re.IGNORECASE)
+
+    if match_genesis:
+        raw_materials = re.sub(r"Ação de Recuperação:\s*", "", match_genesis.group(0), flags=re.IGNORECASE)
+    elif match_manual:
+        raw_materials = match_manual.group(1)
     else:
-        material_lines = [l for l in lines if re.match(r'^\d+', l)]
+        # Fallback para linhas soltas se não achar headers
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        temp_list = []
+        for l in lines:
+            if re.match(r'^\d+[\s\w]', l) or any(
+                    x in l.lower() for x in ['fusão', 'fusões', 'cabo', 'otdr', 'caixa', 'ceo', 'fita', 'tubo']):
+                if not re.match(r'^\d{2}/\d{2}/\d{4}', l) and "lat" not in l.lower():
+                    temp_list.append(l)
+        raw_materials = "\n".join(temp_list)
 
-    return data, [l.strip() for l in material_lines if l.strip()]
+    # PROCESSAMENTO FINAL DAS TRATATIVAS (Quebra de linha nas barras e numeros grudados)
+    if raw_materials:
+        # 1. Substitui barras por quebra de linha
+        raw_materials = raw_materials.replace('/', '\n')
+
+        # 2. Corrige números grudados (ex: "fusões04" -> "fusões\n04")
+        # Procura letra seguida imediatamente de 2 digitos
+        raw_materials = re.sub(r"([a-zA-Zçãõéáíóú])(\d{2})", r"\1\n\2", raw_materials)
+
+        material_lines = [l.strip() for l in raw_materials.splitlines() if l.strip()]
+    else:
+        material_lines = []
+
+    return data, material_lines
 
 
 def detect_launch(material_lines):
@@ -173,115 +248,62 @@ def detect_launch(material_lines):
 
 def generate_pps(total_length, vt_each=15):
     usable = total_length - (2 * vt_each)
-    if usable <= 0:
-        return []
+    if usable <= 0: return []
     num_spans = max(1, round(usable / 40))
     span_len = round(usable / num_spans)
     return [span_len] * num_spans
 
 
-# ----------------------------
-# 2b. Divisão de tratativas
-# ----------------------------
 def dividir_tratativas(material_lines):
-    """
-    Regras:
-      - Lançamento (metros): sempre fica no ponto 1
-      - Fusões, Tubo Loose, etc → dividir 50/50
-      - CEO, PTRO, Abertura e Reabertura:
-           • Se forem diferentes e quantidade 1 → cada um vai para um ponto
-           • Se forem iguais e quantidade > 1 → dividir 50/50
-           • Se houver mistura de 2 itens unitários → 1 em cada ponto
-    """
-
-    # Palavras-chave classificadas
     divisiveis = ["fus", "fusão", "fusões", "fusao", "tubo", "loose"]
-    especiais = ["ceo", "ptro", "abertura", "reabertura"]
+    especiais = ["ceo", "ptro", "abertura", "reabertura", "caixa"]
+    p1, p2 = [], []
 
-    p1 = []
-    p2 = []
-
-    # Primeiro, normalizar e extrair itens estruturados
     itens = []
     for linha in material_lines:
         texto = linha.strip()
         low = texto.lower()
-
-        m = re.match(r"(\d+)\s+(.+)", low)
+        m = re.match(r"(\d+)\s*[-xX]?\s*(.+)", low)
         if not m:
             itens.append({"qtd": 1, "nome": low, "orig": texto})
             continue
+        itens.append({"qtd": int(m.group(1)), "nome": m.group(2).strip(), "orig": texto})
 
-        qtd = int(m.group(1))
-        nome = m.group(2).strip()
-
-        itens.append({"qtd": qtd, "nome": nome, "orig": texto})
-
-    # --- CASO ESPECIAL ---
-    # Se existirem 2 itens diferentes com quantidade 1 e forem “especiais” (CEO/ PTRO / Abertura / Reabertura)
     especiais_unitarios = [i for i in itens if i["qtd"] == 1 and any(k in i["nome"] for k in especiais)]
+
     if len(especiais_unitarios) == 2:
         p1.append(especiais_unitarios[0]["orig"])
         p2.append(especiais_unitarios[1]["orig"])
-
-        # Remover esses itens da lista
         restantes = [i for i in itens if i not in especiais_unitarios]
     else:
         restantes = itens.copy()
 
-    # --- PROCESSAMENTO NORMAL ---
     for item in restantes:
-        qtd = item["qtd"]
-        nome = item["nome"]
-        orig = item["orig"]
-
-        # Lançamento
+        qtd, nome, orig = item["qtd"], item["nome"], item["orig"]
         if any(f in nome for f in FILTRO_LANCAMENTO):
             p1.append(orig)
             continue
-
-        # Itens especiais
         if any(k in nome for k in especiais):
             if qtd == 1:
-                p1.append(orig)  # único → ponto 1
+                p1.append(orig)
             else:
-                # dividir em 2
                 metade = qtd // 2
                 resto = qtd - metade
-                if metade > 0:
-                    p1.append(f"{metade} {nome}")
-                if resto > 0:
-                    p2.append(f"{resto} {nome}")
+                if metade > 0: p1.append(f"{metade} {nome}")
+                if resto > 0: p2.append(f"{resto} {nome}")
             continue
-
-        # itens divisíveis
         if any(k in nome for k in divisiveis):
             metade = qtd // 2
             resto = qtd - metade
-            if metade > 0:
-                p1.append(f"{metade} {nome}")
-            if resto > 0:
-                p2.append(f"{resto} {nome}")
+            if metade > 0: p1.append(f"{metade} {nome}")
+            if resto > 0: p2.append(f"{resto} {nome}")
             continue
-
-        # não divisíveis → ponto 1
         p1.append(orig)
-
     return p1, p2
 
 
 # ----------------------------
-# Input que indentifica lancamento
-# ----------------------------
-FILTRO_LANCAMENTO = [
-    "metr",
-    "lancado",
-    "lançado",
-    "lancamento",
-    "lançamento"
-]
-# ----------------------------
-# 3. Geração do PDF
+# Geração do PDF
 # ----------------------------
 def create_overlay(parsed, materials_raw, pp_list, overlay_path):
     if not os.path.exists(TEMPLATE_PDF):
@@ -297,60 +319,38 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
     c = canvas.Canvas(str(overlay_path), pagesize=(width_pt, height_pt))
 
     def put_xy(key, text, size=9, manual_coords=None):
-        if not text:
-            return
-
+        if not text: return
         if manual_coords:
             xpct, ypct = manual_coords
         elif key in COORDS:
             xpct, ypct = COORDS[key]
         else:
             return
-
         x, y = pct_to_pt(xpct, ypct, width_pt, height_pt)
         c.setFont("Helvetica", size)
-
-        if DEBUG_MODE:
-            c.setStrokeColor(red)
-            c.rect(x - 2, y - 2, 100, size + 4, fill=0)
-            c.setFillColor(red)
-            c.setFont("Helvetica", 6)
-            c.drawString(x, y + size + 2, f"{key}")
-            c.setFillColor(black)
-            c.setFont("Helvetica", size)
-            c.setStrokeColor(black)
-
         lines = str(text).split('\n')
         for i, ln in enumerate(lines):
             c.drawString(x, y - (i * (size + 2)), ln)
 
-    # Campos básicos
     for key, val in parsed.items():
-        if key not in ['executantes_parsed', 'executantes_raw']:
+        if key not in ['executantes_parsed']:
             put_xy(key, val, size=9)
 
-    # Executantes
     execs = parsed.get('executantes_parsed', [])
     for i, item in enumerate(execs):
-        if i >= EXEC_CONFIG['max_rows']:
-            break
+        if i >= EXEC_CONFIG['max_rows']: break
         current_y = EXEC_CONFIG['start_y'] - (i * EXEC_CONFIG['step_y'])
-        put_xy(f"exec_{i}", item['name'], size=9,
-               manual_coords=(EXEC_CONFIG['name_x'], current_y))
+        put_xy(f"exec_{i}", item['name'].title(), size=9, manual_coords=(EXEC_CONFIG['name_x'], current_y))
         if item['re']:
-            put_xy(f"re_{i}", item['re'], size=9,
-                   manual_coords=(EXEC_CONFIG['re_x'], current_y))
+            put_xy(f"re_{i}", item['re'], size=9, manual_coords=(EXEC_CONFIG['re_x'], current_y))
 
-    # Materiais gasto
     mxp, myp = COORDS['materials_block']
     mx, my = pct_to_pt(mxp, myp, width_pt, height_pt)
     c.setFont('Helvetica', 8)
     for i, line in enumerate(materials_raw[:20]):
         c.drawString(mx, my - (i * 10), line)
 
-    # Croqui
     left_pct, bottom_pct, right_pct, top_pct = COORDS['croqui_rect']
-
     draw_y = height_pt * ((top_pct + bottom_pct) / 2)
     left_x = width_pt * (left_pct + 0.05)
     right_x = width_pt * (right_pct - 0.05)
@@ -359,243 +359,152 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
     c.setDash(4, 2)
     c.line(left_x, draw_y, right_x, draw_y)
     c.setDash([])
-    c.setFont('Helvetica-Bold', 10)
 
-    # Endereço no desenho
     if parsed.get('endereco'):
-        addr_text = parsed['endereco']
+        addr = parsed['endereco']
         c.setFont('Helvetica-Bold', 10)
-        text_width = c.stringWidth(addr_text, 'Helvetica-Bold', 10)
-        center_x = (left_x + right_x) / 2
-        text_x = center_x - (text_width / 2)
-        # Abaixo da linha pontilhada
-        c.drawString(text_x, draw_y + -100, addr_text)
+        tw = c.stringWidth(addr, 'Helvetica-Bold', 10)
+        cx = (left_x + right_x) / 2
+        c.drawString(cx - (tw / 2), draw_y - 100, addr)
 
-    # =======================================
-    #   *** CASO NÃO HAJA LANÇAMENTO ***
-    # (mantém comportamento atual: 3 XC, VT no meio, sem tratativas no desenho)
-    # =======================================
     if len(pp_list) == 0:
         total_width = right_x - left_x
         mid_x = left_x + total_width / 2
-
-        # XC Início
-        c.circle(left_x, draw_y, 4, fill=1)
+        c.circle(left_x, draw_y, 4, fill=1);
         c.drawString(left_x - 12, draw_y - 20, "Início")
-
-        # XC Meio
-        c.circle(mid_x, draw_y, 4, fill=1)
+        c.circle(mid_x, draw_y, 4, fill=1);
         c.drawString(mid_x - 8, draw_y - 20, "XC")
-
-        # XC Fim
-        c.circle(right_x, draw_y, 4, fill=1)
+        c.circle(right_x, draw_y, 4, fill=1);
         c.drawString(right_x - 8, draw_y - 20, "Fim")
-        # ===== CAIXA ÚNICA DE TRATATIVAS (SEM LANÇAMENTO) =====
-        c.setFont("Helvetica", 8)
 
-        offset = 35
-        line_height = 10
-        padding = 15
-        title_height = 12
-        box_width = 220
-
-        total_lines = len(materials_raw)
-        box_height = padding + title_height + (total_lines * line_height)
-
-        # posição do XC do meio
-        center_x = mid_x
-
-        box_x = center_x - (box_width / 2)
+        box_width, offset = 220, 35
+        box_height = 15 + 12 + (len(materials_raw) * 10)
+        box_x = mid_x - (box_width / 2)
         box_y = draw_y + offset
-
-        # Caixa
         c.rect(box_x, box_y, box_width, box_height, fill=0)
-
-        # Título
         c.setFont("Helvetica-Bold", 8)
         c.drawString(box_x + 5, box_y + box_height - 10, "Tratativas")
-
-        # Conteúdo
         c.setFont("Helvetica", 8)
-        text_start_y = box_y + box_height - title_height - 8
-
+        text_start_y = box_y + box_height - 12 - 8
         for i, item in enumerate(materials_raw):
-            c.drawString(box_x + 5, text_start_y - (i * line_height), item)
+            c.drawString(box_x + 5, text_start_y - (i * 10), item)
+        c.line(mid_x, draw_y, mid_x, box_y)
+        c.drawString(mid_x - 4, box_y - 10, "↑")
+    else:
+        p1_list, p2_list = dividir_tratativas(materials_raw)
+        offset, box_width = 30, 180
 
-        # Seta (XC do meio → Caixa)
-        c.line(center_x, draw_y, center_x, box_y)
-        c.drawString(center_x - 4, box_y - 10, "↑")
-
-        c.showPage()
-        c.save()
-        return
-
-    # =======================================
-    #   *** CASO HAJA LANÇAMENTO NORMAL ***
-    # =======================================
-
-    # Antes de desenhar os PP, preparar e desenhar as tratativas acima da linha
-    houve_lancamento = (len(pp_list) > 0)
-    if houve_lancamento:
-        ponto1_list, ponto2_list = dividir_tratativas(materials_raw)
-
-        c.setFont("Helvetica", 8)
-        offset = 30  # distância acima da linha
-
-        # ===== CONFIGURAÇÃO DA CAIXA =====
-        line_height = 10
-        padding = 15  # espaço interno vertical
-        title_height = 12  # espaço para o título
-        box_width = 180  # largura das caixas
-
-        # ========= CAIXA DO INÍCIO ========= #
-
-        total_lines_1 = len(ponto1_list)
-        box_height_1 = padding + title_height + (total_lines_1 * line_height)
-
-        box_x1 = left_x - 20
-        box_y1 = draw_y + offset
-
-        # Fundo da caixa (apenas borda)
-        c.rect(box_x1, box_y1, box_width, box_height_1, fill=0)
-
-        # Título
+        h1 = 15 + 12 + (len(p1_list) * 10)
+        bx1, by1 = left_x - 20, draw_y + offset
+        c.rect(bx1, by1, box_width, h1, fill=0)
         c.setFont("Helvetica-Bold", 8)
-        c.drawString(box_x1 + 5, box_y1 + box_height_1 - 10, "Tratativas E1")
-
-        # Conteúdo
+        c.drawString(bx1 + 5, by1 + h1 - 10, "Tratativas E1")
         c.setFont("Helvetica", 8)
-        text_start_y = box_y1 + box_height_1 - title_height - 8
+        tsy1 = by1 + h1 - 20
+        for i, item in enumerate(p1_list):
+            c.drawString(bx1 + 5, tsy1 - (i * 10), item)
+        c.line(left_x, draw_y, bx1 + box_width / 2, by1)
 
-        for i, item in enumerate(ponto1_list):
-            c.drawString(box_x1 + 5, text_start_y - (i * line_height), item)
-
-        # Seta (Início → Caixa)
-        seta_x = box_x1 + box_width / 2
-        c.line(left_x, draw_y, seta_x, box_y1)
-        c.drawString(seta_x - 4, box_y1 - 10, "↑")
-
-        # ========= CAIXA DO FIM ========= #
-
-        total_lines_2 = len(ponto2_list)
-        box_height_2 = padding + title_height + (total_lines_2 * line_height)
-
-        box_x2 = right_x - box_width + 20
-        box_y2 = draw_y + offset
-
-        c.rect(box_x2, box_y2, box_width, box_height_2, fill=0)
-
+        h2 = 15 + 12 + (len(p2_list) * 10)
+        bx2, by2 = right_x - box_width + 20, draw_y + offset
+        c.rect(bx2, by2, box_width, h2, fill=0)
         c.setFont("Helvetica-Bold", 8)
-        c.drawString(box_x2 + 5, box_y2 + box_height_2 - 10, "Tratativas E2")
-
+        c.drawString(bx2 + 5, by2 + h2 - 10, "Tratativas E2")
         c.setFont("Helvetica", 8)
-        text_start_y2 = box_y2 + box_height_2 - title_height - 8
+        tsy2 = by2 + h2 - 20
+        for i, item in enumerate(p2_list):
+            c.drawString(bx2 + 5, tsy2 - (i * 10), item)
+        c.line(right_x, draw_y, bx2 + box_width / 2, by2)
 
-        for i, item in enumerate(ponto2_list):
-            c.drawString(box_x2 + 5, text_start_y2 - (i * line_height), item)
-
-        # Seta (Fim → Caixa)
-        seta_x2 = box_x2 + box_width / 2
-        c.line(right_x, draw_y, seta_x2, box_y2)
-        c.drawString(seta_x2 - 4, box_y2 - 10, "↑")
-
-    total_width = right_x - left_x
-    spans = len(pp_list)
-    step = total_width / spans
-    current_x = left_x
-
-    # XC inicial
-    c.circle(current_x, draw_y, 4, fill=1)
-    c.drawString(current_x - 12, draw_y - 20, "XC Inicial")
-    c.drawString(current_x, draw_y + 15, "VT 15m")
-
-    for i, dist in enumerate(pp_list):
-        next_x = current_x + step
-        mid_x = (current_x + next_x) / 2
-
-        if dist > 0:
-            c.drawString(mid_x - 15, draw_y + 5, f"PP {dist}m")
-
-        c.circle(next_x, draw_y, 4, fill=1)
-
-        if i == len(pp_list) - 1:
-            c.drawString(next_x - 20, draw_y + 15, "VT 15m")
-            c.drawString(next_x - 8, draw_y - 20, "XC final")
-        else:
-            c.drawString(next_x - 8, draw_y - 20, "XC")
-
-        current_x = next_x
+        total_width = right_x - left_x
+        step = total_width / len(pp_list)
+        cur_x = left_x
+        c.circle(cur_x, draw_y, 4, fill=1)
+        c.drawString(cur_x, draw_y + 15, "VT 15m")
+        for i, dist in enumerate(pp_list):
+            nxt_x = cur_x + step
+            mid = (cur_x + nxt_x) / 2
+            if dist > 0: c.drawString(mid - 15, draw_y + 5, f"PP {dist}m")
+            c.circle(nxt_x, draw_y, 4, fill=1)
+            c.drawString(nxt_x - 8, draw_y - 20, "XC" if i < len(pp_list) - 1 else "XC final")
+            cur_x = nxt_x
 
     c.showPage()
     c.save()
 
 
-# ----------------------------
-# 4. Merge e Rotas
-# ----------------------------
 def merge_overlay(overlay_path, out_path):
     if not os.path.exists(TEMPLATE_PDF):
         os.replace(overlay_path, out_path)
         return
-
     overlay = PdfReader(str(overlay_path))
     template = PdfReader(TEMPLATE_PDF)
-
     if len(template.pages) > 0 and len(overlay.pages) > 0:
         merger = PageMerge(template.pages[0])
         merger.add(overlay.pages[0]).render()
-
     PdfWriter(str(out_path), trailer=template).write()
 
 
-INDEX_HTML = """
+# ----------------------------
+# TELAS HTML (TEMPLATES)
+# ----------------------------
+
+PASTE_HTML = """
 <!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Gerador CROQUI</title>
+<title>Colar Relatório</title>
 <style>
-body { font-family: Arial, sans-serif; background:#f0f2f5; padding:20px }
-.container { max-width:900px; margin:auto; background:#fff; padding:25px; border-radius:8px }
-input, textarea {
-    width:100%;
-    padding:10px;
-    margin-bottom:10px;
-    border:1px solid #999;
-    border-radius:4px;
-    font-size:14px;
-}
-textarea { height:180px; font-family:monospace }
-button {
-    padding:12px 25px;
-    font-size:16px;
-    background:#007bff;
-    color:#fff;
-    border:none;
-    border-radius:4px;
-    cursor:pointer;
-}
-button:hover { background:#0056b3 }
-h3 { margin-top:20px }
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f0f2f5; padding:40px; text-align:center; }
+.container { max-width:700px; margin:auto; background:#fff; padding:40px; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.1); }
+textarea { width:100%; height:300px; padding:15px; margin-bottom:20px; border:2px solid #ddd; border-radius:8px; font-size:14px; font-family:monospace; resize:vertical; background-color: #fafafa; }
+textarea:focus { border-color: #007bff; outline:none; background-color: #fff; }
+button { padding:15px 30px; font-size:18px; background:#007bff; color:#fff; border:none; border-radius:6px; cursor:pointer; transition:0.2s; font-weight:bold; }
+button:hover { background:#0056b3; }
+h2 { color:#333; margin-bottom:10px; }
+.manual-link { display:block; margin-top:20px; color:#666; text-decoration:none; font-size:14px; }
+.manual-link:hover { text-decoration:underline; color:#007bff; }
+.info { color: #666; font-size: 14px; margin-bottom: 25px; }
+</style>
+</head>
+<body>
+<div class="container">
+    <h2>Gerador de Croquis Automático</h2>
+    <p class="info">Cole abaixo o texto do WhatsApp ou do Sistema <strong>GENESIS</strong>.</p>
+    <form method="post" action="/preencher">
+        <textarea name="raw_text" placeholder="Cole aqui seu encerramento..."></textarea>
+        <br>
+        <button type="submit">Processar Texto &raquo;</button>
+    </form>
+    <a href="/form" class="manual-link">Preencher manualmente (Formulário em branco)</a>
+</div>
+</body>
+</html>
+"""
 
-.tag {
-    display: inline-block;
-    background: #007bff;
-    color: white;
-    padding: 5px 10px;
-    border-radius: 15px;
-    margin: 4px;
-    font-size: 13px;
-}
-.tag span {
-    margin-left: 8px;
-    cursor: pointer;
-    font-weight: bold;
-}
-#exec-list div:hover {
-    background: #eee;
-}
-
+FORM_HTML = """
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Confirmar Dados</title>
+<style>
+body { font-family: 'Segoe UI', sans-serif; background:#f0f2f5; padding:20px }
+.container { max-width:900px; margin:auto; background:#fff; padding:30px; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,0.05); }
+input, textarea { width:100%; padding:10px; margin-bottom:15px; border:1px solid #ccc; border-radius:5px; font-size:14px; box-sizing: border-box; }
+textarea { height:150px; font-family:monospace; line-height: 1.4; }
+button { padding:12px 25px; font-size:16px; background:#28a745; color:#fff; border:none; border-radius:5px; cursor:pointer; font-weight:bold; }
+button:hover { background:#218838; }
+h3 { margin-top:25px; border-bottom: 2px solid #eee; padding-bottom: 10px; color: #444; }
+label { font-weight: 600; font-size: 13px; color: #555; display:block; margin-bottom: 5px; }
+.tag { display: inline-block; background: #e9ecef; color: #333; padding: 6px 12px; border-radius: 20px; margin: 4px; font-size: 14px; border: 1px solid #ddd; }
+.tag span { margin-left: 8px; cursor: pointer; color: #dc3545; font-weight: bold; }
+.tag span:hover { color: #bd2130; }
+#exec-list { max-height: 150px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; margin-bottom: 10px; }
+#exec-list div:hover { background: #f8f9fa; color: #007bff; }
+.back-btn { background: #6c757d; margin-right: 10px; text-decoration:none; display:inline-block; color:white; padding:12px 25px; border-radius:5px; text-align:center;}
+.back-btn:hover { background: #5a6268; }
 </style>
 </head>
 
@@ -603,7 +512,7 @@ h3 { margin-top:20px }
 document.addEventListener('DOMContentLoaded', () => {
 
   let tecnicos = [];
-  let selecionados = [];
+  let selecionados = {{ executantes_list | tojson }};
 
   fetch('/tecnicos')
     .then(r => r.json())
@@ -624,16 +533,17 @@ document.addEventListener('DOMContentLoaded', () => {
       const tag = document.createElement('div');
       tag.className = 'tag';
       tag.innerHTML = `${nome} <span>&times;</span>`;
-
       tag.querySelector('span').onclick = () => {
         selecionados = selecionados.filter(n => n !== nome);
         atualizarHidden();
         renderTags();
       };
-
       tagsBox.appendChild(tag);
     });
   }
+
+  renderTags();
+  atualizarHidden();
 
   input.addEventListener('input', () => {
     const v = input.value.toLowerCase();
@@ -642,12 +552,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     tecnicos
       .filter(t => t.includes(v) && !selecionados.includes(t))
-      .slice(0, 6)
+      .slice(0, 8)
       .forEach(t => {
         const div = document.createElement('div');
         div.textContent = t;
         div.style.cursor = 'pointer';
-        div.style.padding = '6px';
+        div.style.padding = '8px';
+        div.style.borderBottom = '1px solid #f0f0f0';
 
         div.onclick = () => {
           selecionados.push(t);
@@ -656,66 +567,104 @@ document.addEventListener('DOMContentLoaded', () => {
           input.value = '';
           list.innerHTML = '';
         };
-
         list.appendChild(div);
       });
   });
-
 });
 </script>
-
 
 <body>
 <div class="container">
 <form method="post" action="/generate" target="_blank">
 
-<input name="ta" placeholder="T.A">
-<input name="causa" placeholder="Causa">
-<input name="endereco" placeholder="Endereço">
-<input name="localidade" placeholder="Localidade">
-<input name="es" placeholder="ES">
-<input name="at" placeholder="AT">
-<input name="tronco" placeholder="Tronco">
-<input name="codigo_obra" placeholder="Código de obra">
-<input name="veiculo" placeholder="Veículo">
-<input name="supervisor" value="Wellington">
-<input name="data" placeholder="Data">
+<h3>Dados Principais</h3>
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
+    <div><label>TA</label><input name="ta" value="{{ data.get('ta','') }}"></div>
+    <div><label>Código Obra (SGM)</label><input name="codigo_obra" value="{{ data.get('codigo_obra','') }}"></div>
+</div>
+
+<label>Causa</label>
+<input name="causa" value="{{ data.get('causa','') }}">
+
+<label>Endereço / Localização</label>
+<input name="endereco" value="{{ data.get('endereco','') }}">
+
+<div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:15px;">
+    <div><label>Localidade</label><input name="localidade" value="{{ data.get('localidade','') }}"></div>
+    <div><label>ES</label><input name="es" value="{{ data.get('es','') }}"></div>
+    <div><label>AT</label><input name="at" value="{{ data.get('at','') }}"></div>
+</div>
+
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
+    <div><label>Tronco</label><input name="tronco" value="{{ data.get('tronco','') }}"></div>
+    <div><label>Veículo</label><input name="veiculo" value="{{ data.get('veiculo','') }}"></div>
+</div>
+
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
+    <div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','Wellington') }}"></div>
+    <div><label>Data</label><input name="data" value="{{ data.get('data','') }}"></div>
+</div>
 
 <h3>Executantes</h3>
-
-<input id="exec-input" placeholder="Digite o nome do técnico">
+<div id="exec-tags" style="margin-bottom:10px;"></div>
+<input id="exec-input" placeholder="Digite o nome para adicionar mais (ex: Marcos)...">
 <div id="exec-list"></div>
-
-<div id="exec-tags" style="margin:8px 0;"></div>
-
 <input type="hidden" name="executantes" id="exec-hidden">
 
+<h3>Tratativas (Itens)</h3>
+<textarea name="itens">{{ itens_texto }}</textarea>
 
-<h3>Itens / Tratativas</h3>
-<textarea name="itens" placeholder="Ex:
-200 Metros FO lançado
-01 PTRO
-08 Fusões
-04 Tubo Loose"></textarea>
+<div style="margin-top:30px; border-top: 1px solid #eee; padding-top: 20px;">
+    <a href="/" class="back-btn">&laquo; Colar Outro</a>
+    <button type="submit">Gerar PDF Final</button>
+</div>
 
-<button type="submit">Gerar PDF</button>
 </form>
 </div>
 </body>
 </html>
 """
 
+
+# ----------------------------
+# ROTAS FLASK
+# ----------------------------
+
 @app.route('/')
 def index():
-    return render_template_string(INDEX_HTML)
+    return render_template_string(PASTE_HTML)
+
+
+@app.route('/form')
+def form_vazio():
+    return render_template_string(FORM_HTML, data={}, itens_texto="", executantes_list=[])
+
+
+@app.route('/preencher', methods=['POST'])
+def preencher():
+    raw_text = request.form.get('raw_text', '')
+    parsed_data, material_lines = extract_fields(raw_text)
+
+    # Prepara lista simples de nomes para o Front-end
+    exec_names = [e['name'].title() for e in parsed_data.get('executantes_parsed', [])]
+
+    itens_texto = "\n".join(material_lines)
+
+    return render_template_string(FORM_HTML,
+                                  data=parsed_data,
+                                  itens_texto=itens_texto,
+                                  executantes_list=exec_names)
+
 
 @app.route('/tecnicos')
 def tecnicos():
     return list(DB_TECNICOS.keys())
 
+
 @app.route('/view/<filename>')
 def view_pdf(filename):
     return redirect(url_for('outputs', filename=filename))
+
 
 @app.route('/outputs/<path:filename>')
 def outputs(filename):
@@ -724,26 +673,52 @@ def outputs(filename):
 
 @app.route('/generate', methods=['POST'])
 def generate():
+    # Reconstrói dados baseados no form revisado pelo usuário
     texto_final = f"""
-T.A: {request.form.get('ta','')}
-Causa: {request.form.get('causa','')}
-Endereço: {request.form.get('endereco','')}
-Localidade: {request.form.get('localidade','')}
-ES: {request.form.get('es','')}
-AT: {request.form.get('at','')}
-Tronco: {request.form.get('tronco','')}
-Código de obra: {request.form.get('codigo_obra','')}
-Executantes: {request.form.get('executantes','')}
-Veiculo: {request.form.get('veiculo','')}
-Supervisor: {request.form.get('supervisor','')}
-Data: {request.form.get('data','')}
+    TA: {request.form.get('ta', '')}
+    Código de obra: {request.form.get('codigo_obra', '')}
+    Causa: {request.form.get('causa', '')}
+    Endereço: {request.form.get('endereco', '')}
+    Localidade: {request.form.get('localidade', '')}
+    ES: {request.form.get('es', '')}
+    AT: {request.form.get('at', '')}
+    Tronco: {request.form.get('tronco', '')}
+    Veiculo: {request.form.get('veiculo', '')}
+    Data: {request.form.get('data', '')}
+    Supervisor: {request.form.get('supervisor', '')}
+    """
 
-Tratativas:
-{request.form.get('itens','')}
-"""
+    # Para executantes, pegamos do hidden input que o JS preencheu
+    execs_string = request.form.get('executantes', '')
+    exec_list = []
+    if execs_string:
+        for nome in execs_string.split(','):
+            clean = nome.strip().lower()
+            if clean in DB_TECNICOS:
+                exec_list.append({'name': clean, 're': DB_TECNICOS[clean]})
+            else:
+                exec_list.append({'name': clean, 're': ''})
 
-    # === PROCESSAMENTO NORMAL (igual ao original) ===
-    parsed, material_lines = extract_fields(texto_final)
+    # Tratativas
+    itens_raw = request.form.get('itens', '')
+    material_lines = [l.strip() for l in itens_raw.splitlines() if l.strip()]
+
+    # Monta objeto final para o criador de PDF
+    parsed = {
+        'ta': request.form.get('ta', ''),
+        'codigo_obra': request.form.get('codigo_obra', ''),
+        'causa': request.form.get('causa', ''),
+        'endereco': request.form.get('endereco', ''),
+        'localidade': request.form.get('localidade', ''),
+        'es': request.form.get('es', ''),
+        'at': request.form.get('at', ''),
+        'tronco': request.form.get('tronco', ''),
+        'veiculo': request.form.get('veiculo', ''),
+        'data': request.form.get('data', ''),
+        'supervisor': request.form.get('supervisor', ''),
+        'executantes_parsed': exec_list
+    }
+
     total_len = detect_launch(material_lines)
     pp_list = generate_pps(total_len) if total_len else []
 
@@ -756,13 +731,15 @@ Tratativas:
     create_overlay(parsed, material_lines, pp_list, overlay_path)
     merge_overlay(overlay_path, out_pdf)
 
-    filename = out_pdf.name
-    return redirect(url_for('view_pdf', filename=filename))
-
+    return redirect(url_for('view_pdf', filename=out_pdf.name))
 
 
 if __name__ == '__main__':
     if not os.path.exists(TEMPLATE_PDF):
-        print(f"AVISO: {TEMPLATE_PDF} não encontrado. Gerando PDF em branco para teste.")
+        # Cria um PDF dummy se não existir, para evitar crash
+        c = canvas.Canvas(TEMPLATE_PDF)
+        c.drawString(100, 700, "TEMPLATE AUSENTE - COLOQUE O ARQUIVO 'CROQUI.pdf'")
+        c.save()
+        print(f"AVISO: {TEMPLATE_PDF} criado temporariamente.")
 
     app.run(debug=True, port=5000)
