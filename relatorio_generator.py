@@ -206,14 +206,14 @@ def extract_fields(text):
 
     text = text.replace('\r\n', '\n').strip()
 
-    # 1. SIGLAS ES.AT (ex: SOC.CR, ignorando .com.br)
+    # 1. SIGLAS ES.AT
     match_sigla = re.search(r"\b(?!(?:com|net|org|gov|www|vivo|http)\b)([a-zA-Z]{3})\.([a-zA-Z]{2})\b", text,
                             re.IGNORECASE)
     if match_sigla:
         data['es'] = match_sigla.group(1).upper()
         data['at'] = match_sigla.group(2).upper()
 
-    # 2. HEADER (SGM - TA)
+    # 2. HEADER
     match_header = re.search(r"(\d{8,})\s*-\s*TA\s*(\d{8,})", text)
     if match_header:
         data['codigo_obra'] = match_header.group(1)
@@ -238,7 +238,7 @@ def extract_fields(text):
             if m:
                 data[key] = m.group(1).strip().rstrip('.,;')
 
-    # 4. ENDEREÇO (Limpeza e Extração de Cidade)
+    # 4. ENDEREÇO
     raw_address = ""
     m_end = re.search(r"(?m)^.*?(?:end[eê]re[cç]o|localiza[cç][aã]o)\s*[:;\-]?\s*(.+)", text, re.IGNORECASE)
     if m_end:
@@ -250,7 +250,6 @@ def extract_fields(text):
             raw_address = m_street.group(1).strip()
 
     if raw_address:
-        # Tenta pescar localidade (Cidade - SP) se estiver vazia
         if not data['localidade']:
             m_city = re.search(r"([A-Za-zÀ-ÿ\s]+)\s*[-/]\s*[A-Z]{2}\b", raw_address)
             if m_city:
@@ -260,14 +259,13 @@ def extract_fields(text):
                     city_clean = city_clean.split(",")[-1].strip()
                 data['localidade'] = city_clean
 
-        # Corta endereço no número
         m_short_addr = re.match(r"^(.*?,\s*\d+)", raw_address)
         if m_short_addr:
             data['endereco'] = m_short_addr.group(1)
         else:
             data['endereco'] = raw_address
 
-    # 5. TRONCO / CABO (TR#)
+    # 5. TRONCO / CABO
     m_tr = re.search(r"TR\s*#?\s*(\d+)", text, re.IGNORECASE)
     if m_tr:
         data['tronco'] = m_tr.group(1)
@@ -277,29 +275,36 @@ def extract_fields(text):
 
     data['supervisor'] = "Wellington"
 
-    # 6. TÉCNICOS (Busca Global)
+    # ---------------------------------------------------------
+    # 6. TÉCNICOS (CORRIGIDO PARA USAR ALIASES)
+    # ---------------------------------------------------------
     exec_list = []
     text_lower = text.lower()
-    nomes_encontrados = set()
+    nomes_encontrados_set = set() # Evita duplicatas do mesmo técnico
 
-    for nome_db, re_code in DB_TECNICOS.items():
-        if re.search(r"\b" + re.escape(nome_db) + r"\b", text_lower):
-            if nome_db not in nomes_encontrados:
-                nomes_encontrados.add(nome_db)
-                exec_list.append({'name': nome_db, 're': re_code})
+    # Função auxiliar para checar e adicionar
+    def tentar_adicionar(termo_busca, nome_oficial):
+        # \b garante palavra exata (evita achar 'Ana' dentro de 'Banana')
+        if re.search(r"\b" + re.escape(termo_busca) + r"\b", text_lower):
+            if nome_oficial not in nomes_encontrados_set:
+                nomes_encontrados_set.add(nome_oficial)
+                # Pega o RE do banco oficial
+                re_tecnico = DB_TECNICOS.get(nome_oficial, "")
+                exec_list.append({'name': nome_oficial, 're': re_tecnico})
 
-    final_execs = []
-    nomes_ordenados = sorted(list(nomes_encontrados), key=len, reverse=True)
-    processados = set()
-    for nome in nomes_ordenados:
-        if any(nome in maior for maior in processados):
-            continue
-        processados.add(nome)
-        final_execs.append({'name': nome, 're': DB_TECNICOS[nome]})
+    # A. Procura primeiro pelos nomes OFICIAIS (ex: "Emerson Pereira")
+    for nome_oficial in DB_TECNICOS:
+        tentar_adicionar(nome_oficial, nome_oficial)
 
-    data['executantes_parsed'] = final_execs
+    # B. Procura pelos APELIDOS (ex: "Emerson" -> mapeia para "Emerson Pereira")
+    for apelido, nome_oficial in DB_ALIASES.items():
+        # Só procura o apelido se o oficial já não tiver sido achado na etapa A
+        if nome_oficial not in nomes_encontrados_set:
+            tentar_adicionar(apelido, nome_oficial)
 
-    # 7. TRATATIVAS (Extração Inicial e Limpeza)
+    data['executantes_parsed'] = exec_list
+
+    # 7. TRATATIVAS
     raw_materials = ""
     match_genesis = re.search(r"Ação de Recuperação:[\s\S]*?(?=\nMaterial|\nData|\Z)", text, re.IGNORECASE)
     match_manual = re.search(r"O QUE FOI FEITO.*:([\s\S]*?)(?=\n\d+\)|Material|\Z)", text, re.IGNORECASE)
@@ -309,7 +314,6 @@ def extract_fields(text):
     elif match_manual:
         raw_materials = match_manual.group(1)
     else:
-        # Fallback
         lines = [l.strip() for l in text.splitlines() if l.strip()]
         temp_list = []
         for l in lines:
@@ -320,9 +324,7 @@ def extract_fields(text):
         raw_materials = "\n".join(temp_list)
 
     if raw_materials:
-        # Troca barras por ENTER
         raw_materials = raw_materials.replace('/', '\n')
-        # Separa número grudado: "f.o01" -> "f.o\n01"
         raw_materials = re.sub(r"([a-zA-Zçãõéáíóú\.])(\d{2})", r"\1\n\2", raw_materials)
         material_lines = [l.strip() for l in raw_materials.splitlines() if l.strip()]
     else:
@@ -622,7 +624,7 @@ h2 { color:#333; margin-bottom:10px; }
 <body>
 <div class="container">
     <h2>Gerador de Croquis Automático</h2>
-    <p class="info">Cole abaixo o texto do WhatsApp ou do Sistema <strong>GENESIS</strong>.</p>
+    <p class="info">Cole abaixo o encerramento do <strong>GENESIS</strong>.</p>
     <form method="post" action="/preencher">
         <textarea name="raw_text" placeholder="Cole aqui seu encerramento..."></textarea>
         <br>
