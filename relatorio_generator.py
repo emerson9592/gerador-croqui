@@ -14,56 +14,151 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 # --- CONFIGURAÇÃO: BANCO DE DADOS DE TÉCNICOS ---
 DB_TECNICOS = {
-    "agnaldo brisola": "0102060458",
-    "aguinaldo": "0102060458",
-    "agnaldo": "0102060458",
+    "agnaldo venancio": "0102060458",
+    "alessandro ferreira": "0102047065",
+    "cleiton irani": "0102059450",
+    "emerson pereira": "0102059848",
+    "erickson fernando": "0102053031",
+    "joaquim otavio": "0102063826",
+    "julio cesar": "0102050030",
+    "leandro dias": "0102055139",
+    "leonardo félix": "0102063528",
+    "marcos paulo": "0124064676",
+    "murilo de oliveira": "0102063941",
+    "pablo daniel": "0102059303",
+    "roger ribeiro": "0102054899",
+    "ruan augusto": "0124064626",
+    "talissa aparecida": "0102044461",
+    "welington josé": "0102047056",
     "aguilson lucas": "0102062737",
     "alan almeida": "0102062248",
     "alan bruno": "0118065433",
-    "alessandro morais": "0102047065",
     "alex feitosa": "0102064113",
     "caio rodrigo": "0118064757",
-    "cleiton benfica": "0102059450",
-    "diogo primo": "0102056374",
-    "edmilson santos": "0102060449",
+    "diogo primo silva": "0102056374",
+    "edmilson dos santos": "0102060449",
     "edson rosa": "0118064670",
     "elias fonseca": "0118064645",
-    "emerson silva": "0102059848",
-    "emerson pereira da silva": "0102059848",
-    "emerson": "0102059848",
-    "erickson leme": "0102053031",
     "felipe fontoura": "102062731",
     "felipe nunes": "0102063906",
     "fernando aparecido": "0102060636",
-    "henrique lima": "102063911",
+    "henrique de lima": "102063911",
     "joao gabriel": "0118065540",
-    "joaquim vaz": "0102063826",
-    "jonathan santos": "0102060445",
+    "jonathan dos santos": "0102060445",
     "jose gabriel": "0102060418",
-    "julio cesar": "102060638",
-    "julio moraes": "0102050030",
+    "julio cesar silva": "102060638",
     "jurandi wesley": "0118064679",
     "kelvin gomes": "0102062255",
-    "leandro junior": "0102055139",
-    "leonardo junior": "0102063528",
-    "leonardo": "0102063528",
     "lucas amorim": "0118064689",
     "marcio barbosa": "0102062727",
-    "marco lucca": "0102062770",
-    "marcos santos": "0124064676",
-    "marcos": "0124064676",
+    "marco de lucca": "0102062770",
     "mauricio oliveira": "0118064616",
-    "murilo graca": "0102063941",
-    "pablo antonio": "0102059303",
-    "pablo": "0102059303",
-    "roger gomes": "0102054899",
-    "ruan caetano": "0124064626",
     "ruan vinicius": "0102064131",
-    "talissa andrade": "0102044461",
-    "welington batista": "0102047056",
-    "wendel ribeiro": "0102064177",
+    "wendel ribeiro": "0102064177"
 }
 
+# --- CONFIGURAÇÃO: APELIDOS / VARIAÇÕES (Mapeia Apelido -> Nome Oficial) ---
+# O sistema vai procurar isso no texto, mas salvar o nome oficial
+DB_ALIASES = {
+    # agnaldo
+    "agnaldo": "agnaldo venancio",
+    "aguinaldo": "agnaldo venancio",
+    "agnaldo brisola": "agnaldo venancio",
+    # alessandro
+    "alessandro": "alessandro ferreira",
+    "alessandro morais": "alessandro ferreira",
+    # cleiton
+    "cleiton": "cleiton irani",
+    "cleiton benfica": "cleiton irani",
+    # emerson
+    "emerson": "emerson pereira",
+    "emerson silva": "emerson pereira",
+    # erickson
+    "erickson": "erickson fernando",
+    "erickson leme": "erickson fernando",
+    # joaquim
+    "joaquim": "joaquim otavio",
+    "joaquim vaz": "joaquim otavio",
+    # julio (moraes)
+    "julio": "julio cesar",
+    "julio moraes": "julio cesar",
+    # leandro
+    "leandro": "leandro dias",
+    "leandro junior": "leandro dias",
+    # leonardo
+    "leonardo": "leonardo félix",
+    "leonardo junior": "leonardo félix",
+    # marcos
+    "marcos": "marcos paulo",
+    "marcos santos": "marcos paulo",
+    # murilo
+    "murilo": "murilo de oliveira",
+    "murilo graca": "murilo de oliveira",
+    # pablo
+    "pablo": "pablo daniel",
+    "pablo antonio": "pablo daniel",
+    # roger
+    "roger": "roger ribeiro",
+    "roger gomes": "roger ribeiro",
+    # ruan augusto
+    "ruan": "ruan augusto",
+    "ruan caetano": "ruan augusto",
+    # talissa
+    "talissa": "talissa aparecida",
+    "talissa andrade": "talissa aparecida",
+    # welington
+    "welington": "welington josé",
+    "welington batista": "welington josé",
+    # aguilson
+    "aguilson": "aguilson lucas",
+    # alan almeida
+    "alan": "alan almeida",
+    # alan bruno
+    "alan bruno": "alan bruno",
+    # alex
+    "alex": "alex feitosa",
+    # caio
+    "caio": "caio rodrigo",
+    # diogo
+    "diogo": "diogo primo silva",
+    # edmilson
+    "edmilson": "edmilson dos santos",
+    # edson
+    "edson": "edson rosa",
+    # elias
+    "elias": "elias fonseca",
+    # felipe
+    "felipe": "felipe nunes",
+    # fernando
+    "fernando": "fernando aparecido",
+    # henrique
+    "henrique": "henrique de lima",
+    # joao
+    "joao": "joao gabriel",
+    # jonathan
+    "jonathan": "jonathan dos santos",
+    # jose
+    "jose": "jose gabriel",
+    # julio silva (segundo julio)
+    "julio silva": "julio cesar silva",
+    # jurandi
+    "jurandi": "jurandi wesley",
+    # kelvin
+    "kelvin": "kelvin gomes",
+    # lucas
+    "lucas": "lucas amorim",
+    # marcio
+    "marcio": "marcio barbosa",
+    # marco
+    "marco": "marco de lucca",
+    "marco lucca": "marco de lucca",
+    # mauricio
+    "mauricio": "mauricio oliveira",
+    # ruan vinicius
+    "ruan vinicius": "ruan vinicius",
+    # wendel
+    "wendel": "wendel ribeiro",
+}
 # ----------------------------
 # Configurações de Posição
 # ----------------------------
@@ -385,18 +480,27 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         cx = (left_x + right_x) / 2
         c.drawString(cx - (tw / 2), draw_y - 100, addr)
 
+    # ---------------------------------------------------------
     # Lógica de desenho: Lançamento vs Caixa Simples
+    # ---------------------------------------------------------
     if len(pp_list) == 0:
-        # Caixa Simples (Sem lançamento ou "Repuxado")
+        # --- DESENHO PADRÃO (CAIXA SIMPLES) ---
         total_width = right_x - left_x
         mid_x = left_x + total_width / 2
-        c.circle(left_x, draw_y, 4, fill=1);
+
+        # Ponto Início
+        c.circle(left_x, draw_y, 4, fill=1)
         c.drawString(left_x - 12, draw_y - 20, "Início")
-        c.circle(mid_x, draw_y, 4, fill=1);
+
+        # Ponto Meio (XC)
+        c.circle(mid_x, draw_y, 4, fill=1)
         c.drawString(mid_x - 8, draw_y - 20, "XC")
-        c.circle(right_x, draw_y, 4, fill=1);
+
+        # Ponto Fim
+        c.circle(right_x, draw_y, 4, fill=1)
         c.drawString(right_x - 8, draw_y - 20, "Fim")
 
+        # Caixa de Texto
         box_width, offset = 220, 35
         box_height = 15 + 12 + (len(materials_raw) * 10)
         box_x = mid_x - (box_width / 2)
@@ -408,13 +512,19 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         text_start_y = box_y + box_height - 12 - 8
         for i, item in enumerate(materials_raw):
             c.drawString(box_x + 5, text_start_y - (i * 10), item)
+
+        # Seta
         c.line(mid_x, draw_y, mid_x, box_y)
         c.drawString(mid_x - 4, box_y - 10, "↑")
+
     else:
-        # Lançamento (Desenho com bolinhas)
+        # --- DESENHO DE LANÇAMENTO (Bolinhas e Vãos) ---
+
+        # 1. Desenha as caixas de material (E1 e E2)
         p1_list, p2_list = dividir_tratativas(materials_raw)
         offset, box_width = 30, 180
 
+        # Box Esquerda (E1)
         h1 = 15 + 12 + (len(p1_list) * 10)
         bx1, by1 = left_x - 20, draw_y + offset
         c.rect(bx1, by1, box_width, h1, fill=0)
@@ -426,6 +536,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
             c.drawString(bx1 + 5, tsy1 - (i * 10), item)
         c.line(left_x, draw_y, bx1 + box_width / 2, by1)
 
+        # Box Direita (E2)
         h2 = 15 + 12 + (len(p2_list) * 10)
         bx2, by2 = right_x - box_width + 20, draw_y + offset
         c.rect(bx2, by2, box_width, h2, fill=0)
@@ -437,17 +548,36 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
             c.drawString(bx2 + 5, tsy2 - (i * 10), item)
         c.line(right_x, draw_y, bx2 + box_width / 2, by2)
 
+        # 2. Desenha a Linha de Postes (Pontos)
         total_width = right_x - left_x
         step = total_width / len(pp_list)
         cur_x = left_x
+
+        # --- PONTO INICIAL ---
         c.circle(cur_x, draw_y, 4, fill=1)
-        c.drawString(cur_x, draw_y + 15, "VT 15m")
+        c.drawString(cur_x - 10, draw_y + 15, "VT 15m")  # CORRIGIDO: Desenha VT no início
+        c.drawString(cur_x - 10, draw_y - 20, "XC Inicial")  # CORRIGIDO: Desenha label XC Inicial
+
+        # --- PONTOS INTERMEDIÁRIOS E FINAL ---
         for i, dist in enumerate(pp_list):
             nxt_x = cur_x + step
             mid = (cur_x + nxt_x) / 2
-            if dist > 0: c.drawString(mid - 15, draw_y + 5, f"PP {dist}m")
+
+            # Label do vão (PP Xm)
+            if dist > 0:
+                c.drawString(mid - 15, draw_y + 5, f"PP {dist}m")
+
             c.circle(nxt_x, draw_y, 4, fill=1)
-            c.drawString(nxt_x - 8, draw_y - 20, "XC" if i < len(pp_list) - 1 else "XC final")
+
+            # Verifica se é o último ponto
+            if i == len(pp_list) - 1:
+                # É o final
+                c.drawString(nxt_x - 10, draw_y - 20, "XC Final")
+                c.drawString(nxt_x - 10, draw_y + 15, "VT 15m")  # CORRIGIDO: Desenha VT no final
+            else:
+                # É um poste do meio
+                c.drawString(nxt_x - 8, draw_y - 20, "XC")
+
             cur_x = nxt_x
 
     c.showPage()
