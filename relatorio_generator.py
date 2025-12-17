@@ -12,7 +12,7 @@ TEMPLATE_PDF = "CROQUI.pdf"
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# dados dos tecnicos
+# --- CONFIGURAÇÃO: BANCO DE DADOS DE TÉCNICOS ---
 DB_TECNICOS = {
     "agnaldo brisola": "0102060458",
     "aguinaldo": "0102060458",
@@ -64,8 +64,9 @@ DB_TECNICOS = {
     "wendel ribeiro": "0102064177",
 }
 
-#  coordenadas
-
+# ----------------------------
+# Configurações de Posição
+# ----------------------------
 COORDS = {
     'codigo_obra': (0.18, 0.039),
     'ta': (0.20, 0.182),
@@ -93,15 +94,16 @@ EXEC_CONFIG = {
 FILTRO_LANCAMENTO = ["metr", "lancado", "lançado", "lancamento", "lançamento"]
 
 
-# Funções Auxiliares Parsing
-
+# ----------------------------
+# Funções Auxiliares (Parsing)
+# ----------------------------
 def pct_to_pt(xpct, ypct, width_pt, height_pt):
     return xpct * width_pt, ypct * height_pt
 
 
 def extract_fields(text):
     """
-    Função principal de extração refinada.
+    Função usada APENAS na colagem inicial para preencher o formulário.
     """
     data = {key: '' for key in ['ta', 'codigo_obra', 'causa', 'endereco',
                                 'localidade', 'es', 'at', 'tronco',
@@ -109,14 +111,14 @@ def extract_fields(text):
 
     text = text.replace('\r\n', '\n').strip()
 
-    # 1. siglas ES e AT
+    # 1. SIGLAS ES.AT (ex: SOC.CR, ignorando .com.br)
     match_sigla = re.search(r"\b(?!(?:com|net|org|gov|www|vivo|http)\b)([a-zA-Z]{3})\.([a-zA-Z]{2})\b", text,
                             re.IGNORECASE)
     if match_sigla:
         data['es'] = match_sigla.group(1).upper()
         data['at'] = match_sigla.group(2).upper()
 
-    # 2. cabeçalho
+    # 2. HEADER (SGM - TA)
     match_header = re.search(r"(\d{8,})\s*-\s*TA\s*(\d{8,})", text)
     if match_header:
         data['codigo_obra'] = match_header.group(1)
@@ -127,7 +129,7 @@ def extract_fields(text):
         m_sgm = re.search(r"(?:SGM|Obra)\s*[:\-]?\s*(\d{6,})", text, re.IGNORECASE)
         if m_sgm: data['codigo_obra'] = m_sgm.group(1)
 
-    # 3. causa/localidade/veiculo/data
+    # 3. CAMPOS GERAIS
     patterns = [
         (r"(?:causa|motivo)\s*[:;\-]?\s*(.+)", 'causa'),
         (r"(?:localidade|cidade)\s*[:;\-]?\s*(.+)", 'localidade'),
@@ -141,7 +143,7 @@ def extract_fields(text):
             if m:
                 data[key] = m.group(1).strip().rstrip('.,;')
 
-    # 4. endereço
+    # 4. ENDEREÇO (Limpeza e Extração de Cidade)
     raw_address = ""
     m_end = re.search(r"(?m)^.*?(?:end[eê]re[cç]o|localiza[cç][aã]o)\s*[:;\-]?\s*(.+)", text, re.IGNORECASE)
     if m_end:
@@ -153,6 +155,7 @@ def extract_fields(text):
             raw_address = m_street.group(1).strip()
 
     if raw_address:
+        # Tenta pescar localidade (Cidade - SP) se estiver vazia
         if not data['localidade']:
             m_city = re.search(r"([A-Za-zÀ-ÿ\s]+)\s*[-/]\s*[A-Z]{2}\b", raw_address)
             if m_city:
@@ -162,13 +165,14 @@ def extract_fields(text):
                     city_clean = city_clean.split(",")[-1].strip()
                 data['localidade'] = city_clean
 
+        # Corta endereço no número
         m_short_addr = re.match(r"^(.*?,\s*\d+)", raw_address)
         if m_short_addr:
             data['endereco'] = m_short_addr.group(1)
         else:
             data['endereco'] = raw_address
 
-    # 5. Tronco
+    # 5. TRONCO / CABO (TR#)
     m_tr = re.search(r"TR\s*#?\s*(\d+)", text, re.IGNORECASE)
     if m_tr:
         data['tronco'] = m_tr.group(1)
@@ -178,7 +182,7 @@ def extract_fields(text):
 
     data['supervisor'] = "Wellington"
 
-    # 6. Tecnicos
+    # 6. TÉCNICOS (Busca Global)
     exec_list = []
     text_lower = text.lower()
     nomes_encontrados = set()
@@ -200,7 +204,7 @@ def extract_fields(text):
 
     data['executantes_parsed'] = final_execs
 
-    # 7. Tratativas
+    # 7. TRATATIVAS (Extração Inicial e Limpeza)
     raw_materials = ""
     match_genesis = re.search(r"Ação de Recuperação:[\s\S]*?(?=\nMaterial|\nData|\Z)", text, re.IGNORECASE)
     match_manual = re.search(r"O QUE FOI FEITO.*:([\s\S]*?)(?=\n\d+\)|Material|\Z)", text, re.IGNORECASE)
@@ -220,15 +224,11 @@ def extract_fields(text):
                     temp_list.append(l)
         raw_materials = "\n".join(temp_list)
 
-    # Processamento final das tratativas
     if raw_materials:
-        # 1. Substitui barras por quebra de linha
+        # Troca barras por ENTER
         raw_materials = raw_materials.replace('/', '\n')
-
-        # 2. Correcao de números grudados
-        # Procura letra seguida imediatamente de 2 digitos
-        raw_materials = re.sub(r"([a-zA-Zçãõéáíóú])(\d{2})", r"\1\n\2", raw_materials)
-
+        # Separa número grudado: "f.o01" -> "f.o\n01"
+        raw_materials = re.sub(r"([a-zA-Zçãõéáíóú\.])(\d{2})", r"\1\n\2", raw_materials)
         material_lines = [l.strip() for l in raw_materials.splitlines() if l.strip()]
     else:
         material_lines = []
@@ -237,10 +237,30 @@ def extract_fields(text):
 
 
 def detect_launch(material_lines):
+    """
+    Detecta se é um lançamento de cabo para desenhar a linha.
+    Retorna a metragem (int) ou None.
+    """
     joined = " ".join(material_lines).lower()
-    m = re.search(r"([0-9]{1,4})\s*metr[ao]s?", joined)
-    if m:
-        return int(m.group(1))
+
+    # REGRA DE SEGURANÇA: Se for "repuxado", NUNCA desenha linha (retorna None)
+    if "repuxad" in joined:
+        return None
+
+    patterns = [
+        # 1. Número seguido de unidade (m, mts, metros)
+        r"(\d{1,4})\s*(?:m\b|mt|mts|metr[ao]s?)",
+        # 2. Número seguido de LANÇADO
+        r"(\d{1,4})\s*(?:lan[cç]ad[oa]|lan[cç]amento)",
+        # 3. LANÇADO seguido de número
+        r"(?:lan[cç]ad[oa]|lan[cç]amento)\s*(\d{1,4})"
+    ]
+
+    for p in patterns:
+        m = re.search(p, joined)
+        if m:
+            return int(m.group(1))
+
     return None
 
 
@@ -299,8 +319,10 @@ def dividir_tratativas(material_lines):
         p1.append(orig)
     return p1, p2
 
-# Geração do PDF
 
+# ----------------------------
+# Geração do PDF
+# ----------------------------
 def create_overlay(parsed, materials_raw, pp_list, overlay_path):
     if not os.path.exists(TEMPLATE_PDF):
         width_pt, height_pt = 595.27, 841.89
@@ -363,7 +385,9 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         cx = (left_x + right_x) / 2
         c.drawString(cx - (tw / 2), draw_y - 100, addr)
 
+    # Lógica de desenho: Lançamento vs Caixa Simples
     if len(pp_list) == 0:
+        # Caixa Simples (Sem lançamento ou "Repuxado")
         total_width = right_x - left_x
         mid_x = left_x + total_width / 2
         c.circle(left_x, draw_y, 4, fill=1);
@@ -387,6 +411,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         c.line(mid_x, draw_y, mid_x, box_y)
         c.drawString(mid_x - 4, box_y - 10, "↑")
     else:
+        # Lançamento (Desenho com bolinhas)
         p1_list, p2_list = dividir_tratativas(materials_raw)
         offset, box_width = 30, 180
 
@@ -440,7 +465,10 @@ def merge_overlay(overlay_path, out_path):
         merger.add(overlay.pages[0]).render()
     PdfWriter(str(out_path), trailer=template).write()
 
-# TELAS HTML TEMPLATES
+
+# ----------------------------
+# TELAS HTML (TEMPLATES)
+# ----------------------------
 
 PASTE_HTML = """
 <!doctype html>
@@ -464,7 +492,7 @@ h2 { color:#333; margin-bottom:10px; }
 <body>
 <div class="container">
     <h2>Gerador de Croquis Automático</h2>
-    <p class="info">Cole abaixo o encerramento do <strong>GENESIS</strong>.</p>
+    <p class="info">Cole abaixo o texto do WhatsApp ou do Sistema <strong>GENESIS</strong>.</p>
     <form method="post" action="/preencher">
         <textarea name="raw_text" placeholder="Cole aqui seu encerramento..."></textarea>
         <br>
@@ -618,7 +646,10 @@ document.addEventListener('DOMContentLoaded', () => {
 </html>
 """
 
+
+# ----------------------------
 # ROTAS FLASK
+# ----------------------------
 
 @app.route('/')
 def index():
@@ -663,22 +694,11 @@ def outputs(filename):
 
 @app.route('/generate', methods=['POST'])
 def generate():
-    # Reconstrói dados baseados no form revisado pelo usuário
-    texto_final = f"""
-    TA: {request.form.get('ta', '')}
-    Código de obra: {request.form.get('codigo_obra', '')}
-    Causa: {request.form.get('causa', '')}
-    Endereço: {request.form.get('endereco', '')}
-    Localidade: {request.form.get('localidade', '')}
-    ES: {request.form.get('es', '')}
-    AT: {request.form.get('at', '')}
-    Tronco: {request.form.get('tronco', '')}
-    Veiculo: {request.form.get('veiculo', '')}
-    Data: {request.form.get('data', '')}
-    Supervisor: {request.form.get('supervisor', '')}
-    """
+    # -----------------------------------------------------
+    # GERAÇÃO DO PDF - CONFIA NO FORMULÁRIO EDITADO
+    # -----------------------------------------------------
 
-    # executante pegamos do hidden input que o JS preencheu
+    # 1. Pega os campos simples diretamente do formulário
     execs_string = request.form.get('executantes', '')
     exec_list = []
     if execs_string:
@@ -689,11 +709,6 @@ def generate():
             else:
                 exec_list.append({'name': clean, 're': ''})
 
-    # Tratativas
-    itens_raw = request.form.get('itens', '')
-    material_lines = [l.strip() for l in itens_raw.splitlines() if l.strip()]
-
-    # PDF
     parsed = {
         'ta': request.form.get('ta', ''),
         'codigo_obra': request.form.get('codigo_obra', ''),
@@ -709,9 +724,17 @@ def generate():
         'executantes_parsed': exec_list
     }
 
+    # 2. Pega as tratativas editadas
+    itens_raw = request.form.get('itens', '')
+    material_lines = [l.strip() for l in itens_raw.splitlines() if l.strip()]
+
+    # 3. Detecta lançamento baseado no texto ATUAL
     total_len = detect_launch(material_lines)
+
+    # Se detectou metragem > 0 e NÃO é repuxado, gera lista de pontos
     pp_list = generate_pps(total_len) if total_len else []
 
+    # 4. Gera PDF
     codigo = parsed.get('ta') or f"doc_{random.randint(1000, 9999)}"
     codigo = re.sub(r'[^\w\-]', '', codigo)
 
@@ -726,7 +749,6 @@ def generate():
 
 if __name__ == '__main__':
     if not os.path.exists(TEMPLATE_PDF):
-        # Cria um PDF dummy se não existir, para evitar crash
         c = canvas.Canvas(TEMPLATE_PDF)
         c.drawString(100, 700, "TEMPLATE AUSENTE - COLOQUE O ARQUIVO 'CROQUI.pdf'")
         c.save()
