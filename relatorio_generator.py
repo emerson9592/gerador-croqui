@@ -116,39 +116,53 @@ FILTRO_LANCAMENTO = ["metr", "lancado", "lançado", "lancamento", "lançamento"]
 # ----------------------------
 def buscar_endereco_gps(lat, lon):
     try:
-        # User-agent é exigido pelo serviço Nominatim
         geolocator = Nominatim(user_agent="sistema_croqui_tecnico_v1")
-        # Solicita o endereço reverso
         location = geolocator.reverse(f"{lat}, {lon}", timeout=5)
 
         if location and location.raw.get('address'):
             addr = location.raw['address']
-
-            # Monta o endereço formatado: Rua, Numero - Bairro
             rua = addr.get('road') or addr.get('street') or addr.get('pedestrian') or ""
             numero = addr.get('house_number') or ""
             bairro = addr.get('suburb') or addr.get('neighbourhood') or addr.get('residential') or ""
             cidade = addr.get('city') or addr.get('town') or addr.get('municipality') or ""
-            estado = addr.get('state_code') or "SP"  # Fallback SP
+            estado = addr.get('state_code') or "SP"
 
-            # Monta String Endereço
             end_parts = []
             if rua: end_parts.append(rua)
             if numero: end_parts.append(f", {numero}")
             if bairro: end_parts.append(f" - {bairro}")
 
             endereco_final = "".join(end_parts)
-
-            # Monta String Localidade
             localidade_final = f"{cidade} - {estado}" if cidade else ""
 
             return endereco_final, localidade_final
-
     except Exception as e:
         print(f"Erro ao buscar GPS: {e}")
         return None, None
-
     return None, None
+
+
+# ----------------------------
+# FUNÇÃO NOVA: FORMATAR TEXTO (Primeira Maiúscula)
+# ----------------------------
+def formatar_texto(texto):
+    if not texto: return ""
+    # 1. Deixa apenas a primeira letra da frase maiúscula
+    texto = texto.strip().capitalize()
+
+    # 2. Lista de siglas que devem ficar SEMPRE em maiúsculo
+    siglas = ["SP", "MG", "RJ", "ES", "SC", "PR", "RS", "MS", "MT", "GO", "DF", "TO", "BA", "SE", "AL", "PE", "PB",
+              "RN", "CE", "PI", "MA", "PA", "AP", "AM", "RR", "RO", "AC", "TA", "SGM", "CEO", "CTOP", "OTDR", "VT",
+              "PP", "XC"]
+
+    # 3. Restaura as siglas
+    for sigla in siglas:
+        # Regex que acha a sigla (independente de case) e substitui pela versão maiúscula
+        # \b garante que é a palavra inteira (não substitui 'es' em 'teste')
+        pattern = re.compile(r'\b' + re.escape(sigla) + r'\b', re.IGNORECASE)
+        texto = pattern.sub(sigla, texto)
+
+    return texto
 
 
 # ----------------------------
@@ -195,12 +209,8 @@ def extract_fields(text):
             if m: data[key] = m.group(1).strip().rstrip('.,;')
 
     # 4. ENDEREÇO (Texto ou GPS)
-
-    # A. Tenta achar endereço escrito primeiro
     raw_address = ""
     m_end = re.search(r"(?m)^.*?(?:end[eê]re[cç]o|localiza[cç][aã]o)\s*[:;\-]?\s*(.+)", text, re.IGNORECASE)
-
-    # IMPORTANTE: Se o que ele achou em "Localização" for Lat/Long, a gente ignora aqui para usar o GPS depois
     is_gps_text = False
     if m_end:
         possible_addr = m_end.group(1).strip()
@@ -210,12 +220,10 @@ def extract_fields(text):
             raw_address = possible_addr
 
     if not raw_address and not is_gps_text:
-        # Fallback para nomes de rua
         tipos = r"(?:R\.|Rua|Av\.|Av|Avenida|Estr\.|Estrada|Rod\.|Rodovia|Tv\.|Travessa|Al\.|Alameda|Praça|Pç\.)"
         m_street = re.search(r"(?m)^\s*(?:\d+\)\s*)?(" + tipos + r"\s+.+)", text, re.IGNORECASE)
         if m_street: raw_address = m_street.group(1).strip()
 
-    # B. Processa endereço escrito
     if raw_address:
         if not data['localidade']:
             m_city = re.search(r"([A-Za-zÀ-ÿ\s]+)\s*[-/]\s*[A-Z]{2}\b", raw_address)
@@ -226,25 +234,15 @@ def extract_fields(text):
         m_short = re.match(r"^(.*?,\s*\d+)", raw_address)
         data['endereco'] = m_short.group(1) if m_short else raw_address
 
-    # C. DETECÇÃO DE GPS (Prioridade ou Fallback)
-    # Procura padrões: "Lat -23... Long -47..." ou "-23.123, -47.123" ou "-23.123 // -47.123"
-    # Regex captura 2 floats que começam com -2 (comum no Brasil/SP)
+    # GPS Check
     match_gps = re.search(r"(-2\d\.\d+)[^\d\-]+(-4\d\.\d+)", text)
-
     if match_gps:
         lat, lon = match_gps.group(1), match_gps.group(2)
-        # Chama a função de mapa (requer internet)
         print(f"Tentando converter coordenadas: {lat}, {lon}")
         end_gps, loc_gps = buscar_endereco_gps(lat, lon)
-
         if end_gps:
-            # Se achou endereço no mapa, sobrescreve ou preenche
-            # Preferência: Se não achou endereço escrito antes, usa o do GPS
-            # OU se o endereço achado antes era muito curto/ruim
-            if not data['endereco'] or len(data['endereco']) < 5 or is_gps_text:
-                data['endereco'] = end_gps
-            if not data['localidade'] and loc_gps:
-                data['localidade'] = loc_gps
+            if not data['endereco'] or len(data['endereco']) < 5 or is_gps_text: data['endereco'] = end_gps
+            if not data['localidade'] and loc_gps: data['localidade'] = loc_gps
 
     # 5. TRONCO
     m_tr = re.search(r"TR\s*#?\s*(\d+)", text, re.IGNORECASE)
@@ -256,7 +254,7 @@ def extract_fields(text):
 
     data['supervisor'] = "Wellington"
 
-    # 6. TÉCNICOS
+    # 6. TÉCNICOS (Com Aliases)
     exec_list = []
     text_lower = text.lower()
     nomes_encontrados_set = set()
@@ -268,12 +266,9 @@ def extract_fields(text):
                 re_tecnico = DB_TECNICOS.get(nome_oficial, "")
                 exec_list.append({'name': nome_oficial, 're': re_tecnico})
 
-    for nome_oficial in DB_TECNICOS:
-        tentar_adicionar(nome_oficial, nome_oficial)
-
+    for nome_oficial in DB_TECNICOS: tentar_adicionar(nome_oficial, nome_oficial)
     for apelido, nome_oficial in DB_ALIASES.items():
-        if nome_oficial not in nomes_encontrados_set:
-            tentar_adicionar(apelido, nome_oficial)
+        if nome_oficial not in nomes_encontrados_set: tentar_adicionar(apelido, nome_oficial)
 
     data['executantes_parsed'] = exec_list
 
@@ -292,8 +287,7 @@ def extract_fields(text):
         for l in lines:
             if re.match(r'^\d+[\s\w]', l) or any(
                     x in l.lower() for x in ['fusão', 'fusões', 'cabo', 'otdr', 'caixa', 'ceo', 'fita', 'tubo']):
-                if not re.match(r'^\d{2}/\d{2}/\d{4}', l) and "lat" not in l.lower():
-                    temp_list.append(l)
+                if not re.match(r'^\d{2}/\d{2}/\d{4}', l) and "lat" not in l.lower(): temp_list.append(l)
         raw_materials = "\n".join(temp_list)
 
     if raw_materials:
@@ -302,6 +296,14 @@ def extract_fields(text):
         material_lines = [l.strip() for l in raw_materials.splitlines() if l.strip()]
     else:
         material_lines = []
+
+    # --- APLICAR FORMATAÇÃO (Sentence Case) ---
+    # Campos simples
+    for k in ['causa', 'endereco', 'localidade', 'veiculo', 'supervisor']:
+        data[k] = formatar_texto(data[k])
+
+    # Itens/Tratativas
+    material_lines = [formatar_texto(l) for l in material_lines]
 
     return data, material_lines
 
@@ -563,7 +565,13 @@ def generate():
               'veiculo': request.form.get('veiculo', ''), 'data': request.form.get('data', ''),
               'supervisor': request.form.get('supervisor', ''), 'executantes_parsed': exec_list}
     itens_raw = request.form.get('itens', '')
-    material_lines = [l.strip() for l in itens_raw.splitlines() if l.strip()]
+
+    # --- FORMATAÇÃO FINAL TAMBÉM NO GENERATE ---
+    for k in ['causa', 'endereco', 'localidade', 'veiculo', 'supervisor']:
+        parsed[k] = formatar_texto(parsed[k])
+
+    material_lines = [formatar_texto(l.strip()) for l in itens_raw.splitlines() if l.strip()]
+
     total_len = detect_launch(material_lines)
     pp_list = generate_pps(total_len) if total_len else []
     codigo = parsed.get('ta') or f"doc_{random.randint(1000, 9999)}"
