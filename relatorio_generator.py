@@ -2,7 +2,7 @@ from flask import Flask, render_template_string, request, send_from_directory, r
 from reportlab.pdfgen import canvas
 from pdfrw import PdfReader, PdfWriter, PageMerge
 from pathlib import Path
-import re, random, os
+import re, random, os, json
 
 # --- NOVA BIBLIOTECA PARA MAPAS ---
 from geopy.geocoders import Nominatim
@@ -90,6 +90,20 @@ DB_ALIASES = {
     "ruan vinicius": "ruan vinicius", "wendel": "wendel ribeiro",
 }
 
+# --- CONFIGURAÇÃO: VEÍCULOS (Nome Oficial -> Placa) ---
+DB_VEICULOS = {
+    "leonardo félix": "RVW5G87",
+    "leandro dias": "RVI3G26",
+    "murilo de oliveira": "RTR3F69",
+    "agnaldo venancio": "RTR3F69",
+    "emerson pereira": "RVQ0G58",
+    "pablo daniel": "RTI7C83",
+    "alessandro ferreira": "RVJ6D74",
+    "roger ribeiro": "RVI3G26",
+    "julio cesar": "RVJ6D77",
+    "cleiton irani": "RUX6C72"
+}
+
 # --- CONFIGURAÇÕES DE PDF ---
 COORDS = {
     'codigo_obra': (0.18, 0.039),
@@ -112,7 +126,7 @@ FILTRO_LANCAMENTO = ["metr", "lancado", "lançado", "lancamento", "lançamento"]
 
 
 # ----------------------------
-# FUNÇÃO NOVA: BUSCAR ENDEREÇO VIA GPS (CORRIGIDA: SÓ RUA E NUMERO)
+# FUNÇÃO NOVA: BUSCAR ENDEREÇO VIA GPS
 # ----------------------------
 def buscar_endereco_gps(lat, lon):
     try:
@@ -121,23 +135,15 @@ def buscar_endereco_gps(lat, lon):
 
         if location and location.raw.get('address'):
             addr = location.raw['address']
-
-            # Pega componentes
             rua = addr.get('road') or addr.get('street') or addr.get('pedestrian') or ""
             numero = addr.get('house_number') or ""
+            if not rua: rua = addr.get('hamlet') or addr.get('village') or ""
 
-            # Se não tiver rua, tenta outros campos que possam conter o nome do logradouro
-            if not rua:
-                rua = addr.get('hamlet') or addr.get('village') or ""
-
-            # Monta Endereço: APENAS Rua e Número
             end_parts = []
             if rua: end_parts.append(rua)
             if numero: end_parts.append(f", {numero}")
 
             endereco_final = "".join(end_parts)
-
-            # Monta Localidade (Cidade - Estado)
             cidade = addr.get('city') or addr.get('town') or addr.get('municipality') or ""
             estado = addr.get('state_code') or "SP"
             localidade_final = f"{cidade} - {estado}" if cidade else ""
@@ -150,13 +156,13 @@ def buscar_endereco_gps(lat, lon):
 
 
 # ----------------------------
-# FUNÇÃO NOVA: FORMATAR TEXTO (Primeira Maiúscula)
+# FUNÇÃO NOVA: FORMATAR TEXTO
 # ----------------------------
 def formatar_texto(texto):
     if not texto: return ""
     texto = str(texto).strip()
 
-    # Capitaliza apenas a primeira letra da frase, o resto minúsculo
+    # Capitaliza apenas a primeira letra
     texto = texto.capitalize()
 
     # Lista de siglas que devem ficar SEMPRE em maiúsculo
@@ -167,6 +173,12 @@ def formatar_texto(texto):
     for sigla in siglas:
         pattern = re.compile(r'\b' + re.escape(sigla) + r'\b', re.IGNORECASE)
         texto = pattern.sub(sigla, texto)
+
+    # REGEX PARA PLACAS (Mercosul e Antiga) - Preservar Maiúsculas
+    # Ex: AAA1A11 ou AAA-1111
+    placas = re.findall(r'\b[a-zA-Z]{3}[-]?[0-9][a-zA-Z0-9][0-9]{2}\b', texto, re.IGNORECASE)
+    for p in placas:
+        texto = texto.replace(p, p.upper())
 
     return texto
 
@@ -214,7 +226,7 @@ def extract_fields(text):
             m = re.search(r"(?m)^.*?" + pattern, text, re.IGNORECASE)
             if m: data[key] = m.group(1).strip().rstrip('.,;')
 
-    # 4. ENDEREÇO (Texto ou GPS)
+    # 4. ENDEREÇO
     raw_address = ""
     m_end = re.search(r"(?m)^.*?(?:end[eê]re[cç]o|localiza[cç][aã]o)\s*[:;\-]?\s*(.+)", text, re.IGNORECASE)
     is_gps_text = False
@@ -237,7 +249,6 @@ def extract_fields(text):
                 city_clean = re.sub(r"^[,.\-\s]+", "", m_city.group(1).strip())
                 if "," in city_clean: city_clean = city_clean.split(",")[-1].strip()
                 data['localidade'] = city_clean
-        # Corta endereço no número (TEXTO)
         m_short = re.match(r"^(.*?,\s*\d+)", raw_address)
         data['endereco'] = m_short.group(1) if m_short else raw_address
 
@@ -248,7 +259,6 @@ def extract_fields(text):
         print(f"Tentando converter coordenadas: {lat}, {lon}")
         end_gps, loc_gps = buscar_endereco_gps(lat, lon)
         if end_gps:
-            # Sobrescreve se for GPS ou se o endereço anterior for ruim
             if not data['endereco'] or len(data['endereco']) < 5 or is_gps_text: data['endereco'] = end_gps
             if not data['localidade'] and loc_gps: data['localidade'] = loc_gps
 
@@ -262,7 +272,7 @@ def extract_fields(text):
 
     data['supervisor'] = "Wellington"
 
-    # 6. TÉCNICOS (Com Aliases)
+    # 6. TÉCNICOS
     exec_list = []
     text_lower = text.lower()
     nomes_encontrados_set = set()
@@ -279,6 +289,13 @@ def extract_fields(text):
         if nome_oficial not in nomes_encontrados_set: tentar_adicionar(apelido, nome_oficial)
 
     data['executantes_parsed'] = exec_list
+
+    # --- AUTO-PREENCHIMENTO DE VEÍCULO PELO TÉCNICO ---
+    # Se não achou veículo no texto, pega o do primeiro técnico encontrado
+    if not data['veiculo'] and exec_list:
+        primeiro_tecnico = exec_list[0]['name']  # Nome oficial
+        if primeiro_tecnico in DB_VEICULOS:
+            data['veiculo'] = DB_VEICULOS[primeiro_tecnico]
 
     # 7. TRATATIVAS
     raw_materials = ""
@@ -305,10 +322,9 @@ def extract_fields(text):
     else:
         material_lines = []
 
-    # --- APLICAR FORMATAÇÃO (Sentence Case) NA PRE-VISUALIZAÇÃO ---
+    # Formatação Inicial
     for k in ['causa', 'endereco', 'localidade', 'veiculo', 'supervisor']:
         data[k] = formatar_texto(data[k])
-
     material_lines = [formatar_texto(l) for l in material_lines]
 
     return data, material_lines
@@ -521,7 +537,24 @@ PASTE_HTML = """
 FORM_HTML = """
 <!doctype html><html><head><meta charset="utf-8"><title>Confirmar Dados</title>
 <style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;padding:20px}.container{max-width:900px;margin:auto;background:#fff;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.05)}input,textarea{width:100%;padding:10px;margin-bottom:15px;border:1px solid #ccc;border-radius:5px;font-size:14px;box-sizing:border-box}textarea{height:150px;font-family:monospace;line-height:1.4}button{padding:12px 25px;font-size:16px;background:#28a745;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:bold}button:hover{background:#218838}h3{margin-top:25px;border-bottom:2px solid #eee;padding-bottom:10px;color:#444}label{font-weight:600;font-size:13px;color:#555;display:block;margin-bottom:5px}.tag{display:inline-block;background:#e9ecef;color:#333;padding:6px 12px;border-radius:20px;margin:4px;font-size:14px;border:1px solid #ddd}.tag span{margin-left:8px;cursor:pointer;color:#dc3545;font-weight:bold}.tag span:hover{color:#bd2130}#exec-list{max-height:150px;overflow-y:auto;border:1px solid #eee;border-radius:4px;margin-bottom:10px}#exec-list div:hover{background:#f8f9fa;color:#007bff}.back-btn{background:#6c757d;margin-right:10px;text-decoration:none;display:inline-block;color:white;padding:12px 25px;border-radius:5px;text-align:center}.back-btn:hover{background:#5a6268}</style>
-</head><script>document.addEventListener('DOMContentLoaded',()=>{let tecnicos=[];let selecionados={{ executantes_list|tojson }};fetch('/tecnicos').then(r=>r.json()).then(d=>tecnicos=d);const input=document.getElementById('exec-input');const list=document.getElementById('exec-list');const hidden=document.getElementById('exec-hidden');const tagsBox=document.getElementById('exec-tags');function atualizarHidden(){hidden.value=selecionados.join(', ')}function renderTags(){tagsBox.innerHTML='';selecionados.forEach(nome=>{const tag=document.createElement('div');tag.className='tag';tag.innerHTML=`${nome} <span>&times;</span>`;tag.querySelector('span').onclick=()=>{selecionados=selecionados.filter(n=>n!==nome);atualizarHidden();renderTags()};tagsBox.appendChild(tag)})}renderTags();atualizarHidden();input.addEventListener('input',()=>{const v=input.value.toLowerCase();list.innerHTML='';if(!v)return;tecnicos.filter(t=>t.includes(v)&&!selecionados.includes(t)).slice(0,8).forEach(t=>{const div=document.createElement('div');div.textContent=t;div.style.cursor='pointer';div.style.padding='8px';div.style.borderBottom='1px solid #f0f0f0';div.onclick=()=>{selecionados.push(t);atualizarHidden();renderTags();input.value='';list.innerHTML=''};list.appendChild(div)})})});</script><body><div class="container"><form method="post" action="/generate" target="_blank"><h3>Dados Principais</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:15px"><div><label>TA</label><input name="ta" value="{{ data.get('ta','') }}"></div><div><label>Código Obra (SGM)</label><input name="codigo_obra" value="{{ data.get('codigo_obra','') }}"></div></div><label>Causa</label><input name="causa" value="{{ data.get('causa','') }}"><label>Endereço / Localização</label><input name="endereco" value="{{ data.get('endereco','') }}"><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px"><div><label>Localidade</label><input name="localidade" value="{{ data.get('localidade','') }}"></div><div><label>ES</label><input name="es" value="{{ data.get('es','') }}"></div><div><label>AT</label><input name="at" value="{{ data.get('at','') }}"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:15px"><div><label>Tronco</label><input name="tronco" value="{{ data.get('tronco','') }}"></div><div><label>Veículo</label><input name="veiculo" value="{{ data.get('veiculo','') }}"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:15px"><div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','Wellington') }}"></div><div><label>Data</label><input name="data" value="{{ data.get('data','') }}"></div></div><h3>Executantes</h3><div id="exec-tags" style="margin-bottom:10px"></div><input id="exec-input" placeholder="Digite o nome para adicionar mais (ex: Marcos)..."><div id="exec-list"></div><input type="hidden" name="executantes" id="exec-hidden"><h3>Tratativas (Itens)</h3><textarea name="itens">{{ itens_texto }}</textarea><div style="margin-top:30px;border-top:1px solid #eee;padding-top:20px"><a href="/" class="back-btn">&laquo; Colar Outro</a><button type="submit">Gerar PDF Final</button></div></form></div></body></html>"""
+</head><script>document.addEventListener('DOMContentLoaded',()=>{
+let tecnicos=[];let selecionados={{ executantes_list|tojson }};
+let veiculosMap = {{ veiculos_map|tojson }};
+fetch('/tecnicos').then(r=>r.json()).then(d=>tecnicos=d);
+const input=document.getElementById('exec-input');const list=document.getElementById('exec-list');const hidden=document.getElementById('exec-hidden');const tagsBox=document.getElementById('exec-tags');
+const inputVeiculo = document.querySelector('input[name="veiculo"]');
+function atualizarHidden(){hidden.value=selecionados.join(', ')}
+function renderTags(){tagsBox.innerHTML='';selecionados.forEach(nome=>{const tag=document.createElement('div');tag.className='tag';tag.innerHTML=`${nome} <span>&times;</span>`;tag.querySelector('span').onclick=()=>{selecionados=selecionados.filter(n=>n!==nome);atualizarHidden();renderTags()};tagsBox.appendChild(tag)})}
+renderTags();atualizarHidden();
+input.addEventListener('input',()=>{const v=input.value.toLowerCase();list.innerHTML='';if(!v)return;tecnicos.filter(t=>t.includes(v)&&!selecionados.includes(t)).slice(0,8).forEach(t=>{const div=document.createElement('div');div.textContent=t;div.style.cursor='pointer';div.style.padding='8px';div.style.borderBottom='1px solid #f0f0f0';
+div.onclick=()=>{
+    selecionados.push(t);
+    // AUTO-PREENCHER VEICULO NO JS
+    if(veiculosMap[t] && inputVeiculo.value === "") {
+        inputVeiculo.value = veiculosMap[t];
+    }
+    atualizarHidden();renderTags();input.value='';list.innerHTML=''};
+list.appendChild(div)})})});</script><body><div class="container"><form method="post" action="/generate" target="_blank"><h3>Dados Principais</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:15px"><div><label>TA</label><input name="ta" value="{{ data.get('ta','') }}"></div><div><label>Código Obra (SGM)</label><input name="codigo_obra" value="{{ data.get('codigo_obra','') }}"></div></div><label>Causa</label><input name="causa" value="{{ data.get('causa','') }}"><label>Endereço / Localização</label><input name="endereco" value="{{ data.get('endereco','') }}"><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px"><div><label>Localidade</label><input name="localidade" value="{{ data.get('localidade','') }}"></div><div><label>ES</label><input name="es" value="{{ data.get('es','') }}"></div><div><label>AT</label><input name="at" value="{{ data.get('at','') }}"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:15px"><div><label>Tronco</label><input name="tronco" value="{{ data.get('tronco','') }}"></div><div><label>Veículo</label><input name="veiculo" value="{{ data.get('veiculo','') }}"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:15px"><div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','Wellington') }}"></div><div><label>Data</label><input name="data" value="{{ data.get('data','') }}"></div></div><h3>Executantes</h3><div id="exec-tags" style="margin-bottom:10px"></div><input id="exec-input" placeholder="Digite o nome para adicionar mais (ex: Marcos)..."><div id="exec-list"></div><input type="hidden" name="executantes" id="exec-hidden"><h3>Tratativas (Itens)</h3><textarea name="itens">{{ itens_texto }}</textarea><div style="margin-top:30px;border-top:1px solid #eee;padding-top:20px"><a href="/" class="back-btn">&laquo; Colar Outro</a><button type="submit">Gerar PDF Final</button></div></form></div></body></html>"""
 
 
 @app.route('/')
@@ -529,7 +562,8 @@ def index(): return render_template_string(PASTE_HTML)
 
 
 @app.route('/form')
-def form_vazio(): return render_template_string(FORM_HTML, data={}, itens_texto="", executantes_list=[])
+def form_vazio(): return render_template_string(FORM_HTML, data={}, itens_texto="", executantes_list=[],
+                                                veiculos_map=DB_VEICULOS)
 
 
 @app.route('/preencher', methods=['POST'])
@@ -538,7 +572,8 @@ def preencher():
     parsed_data, material_lines = extract_fields(raw_text)
     exec_names = [e['name'].title() for e in parsed_data.get('executantes_parsed', [])]
     itens_texto = "\n".join(material_lines)
-    return render_template_string(FORM_HTML, data=parsed_data, itens_texto=itens_texto, executantes_list=exec_names)
+    return render_template_string(FORM_HTML, data=parsed_data, itens_texto=itens_texto, executantes_list=exec_names,
+                                  veiculos_map=DB_VEICULOS)
 
 
 @app.route('/tecnicos')
@@ -571,13 +606,9 @@ def generate():
               'veiculo': request.form.get('veiculo', ''), 'data': request.form.get('data', ''),
               'supervisor': request.form.get('supervisor', ''), 'executantes_parsed': exec_list}
     itens_raw = request.form.get('itens', '')
-
-    # --- FORMATAÇÃO FINAL NO PDF ---
     for k in ['causa', 'endereco', 'localidade', 'veiculo', 'supervisor']:
         parsed[k] = formatar_texto(parsed[k])
-
     material_lines = [formatar_texto(l.strip()) for l in itens_raw.splitlines() if l.strip()]
-
     total_len = detect_launch(material_lines)
     pp_list = generate_pps(total_len) if total_len else []
     codigo = parsed.get('ta') or f"doc_{random.randint(1000, 9999)}"
