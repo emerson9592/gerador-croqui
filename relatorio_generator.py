@@ -58,7 +58,8 @@ DB_TECNICOS = {
     "marco de lucca": "0102062770",
     "mauricio oliveira": "0118064616",
     "ruan vinicius": "0102064131",
-    "wendel ribeiro": "0102064177"
+    "wendel ribeiro": "0102064177",
+    "edenilson santos": "sem RE"
 }
 
 # --- APELIDOS (Aliases) ---
@@ -88,6 +89,7 @@ DB_ALIASES = {
     "lucas": "lucas amorim", "marcio": "marcio barbosa", "marco": "marco de lucca",
     "marco lucca": "marco de lucca", "mauricio": "mauricio oliveira",
     "ruan vinicius": "ruan vinicius", "wendel": "wendel ribeiro",
+    "edenilson": "edenilson santos", "edenilson de souza": "edenilson santos",
 }
 
 # --- CONFIGURAÇÃO: VEÍCULOS (Nome Oficial -> Placa) ---
