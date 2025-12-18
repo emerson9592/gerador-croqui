@@ -112,7 +112,7 @@ FILTRO_LANCAMENTO = ["metr", "lancado", "lançado", "lancamento", "lançamento"]
 
 
 # ----------------------------
-# FUNÇÃO NOVA: BUSCAR ENDEREÇO VIA GPS
+# FUNÇÃO NOVA: BUSCAR ENDEREÇO VIA GPS (CORRIGIDA: SÓ RUA E NUMERO)
 # ----------------------------
 def buscar_endereco_gps(lat, lon):
     try:
@@ -121,18 +121,25 @@ def buscar_endereco_gps(lat, lon):
 
         if location and location.raw.get('address'):
             addr = location.raw['address']
+
+            # Pega componentes
             rua = addr.get('road') or addr.get('street') or addr.get('pedestrian') or ""
             numero = addr.get('house_number') or ""
-            bairro = addr.get('suburb') or addr.get('neighbourhood') or addr.get('residential') or ""
-            cidade = addr.get('city') or addr.get('town') or addr.get('municipality') or ""
-            estado = addr.get('state_code') or "SP"
 
+            # Se não tiver rua, tenta outros campos que possam conter o nome do logradouro
+            if not rua:
+                rua = addr.get('hamlet') or addr.get('village') or ""
+
+            # Monta Endereço: APENAS Rua e Número
             end_parts = []
             if rua: end_parts.append(rua)
             if numero: end_parts.append(f", {numero}")
-            if bairro: end_parts.append(f" - {bairro}")
 
             endereco_final = "".join(end_parts)
+
+            # Monta Localidade (Cidade - Estado)
+            cidade = addr.get('city') or addr.get('town') or addr.get('municipality') or ""
+            estado = addr.get('state_code') or "SP"
             localidade_final = f"{cidade} - {estado}" if cidade else ""
 
             return endereco_final, localidade_final
@@ -147,18 +154,17 @@ def buscar_endereco_gps(lat, lon):
 # ----------------------------
 def formatar_texto(texto):
     if not texto: return ""
-    # 1. Deixa apenas a primeira letra da frase maiúscula
-    texto = texto.strip().capitalize()
+    texto = str(texto).strip()
 
-    # 2. Lista de siglas que devem ficar SEMPRE em maiúsculo
+    # Capitaliza apenas a primeira letra da frase, o resto minúsculo
+    texto = texto.capitalize()
+
+    # Lista de siglas que devem ficar SEMPRE em maiúsculo
     siglas = ["SP", "MG", "RJ", "ES", "SC", "PR", "RS", "MS", "MT", "GO", "DF", "TO", "BA", "SE", "AL", "PE", "PB",
               "RN", "CE", "PI", "MA", "PA", "AP", "AM", "RR", "RO", "AC", "TA", "SGM", "CEO", "CTOP", "OTDR", "VT",
               "PP", "XC"]
 
-    # 3. Restaura as siglas
     for sigla in siglas:
-        # Regex que acha a sigla (independente de case) e substitui pela versão maiúscula
-        # \b garante que é a palavra inteira (não substitui 'es' em 'teste')
         pattern = re.compile(r'\b' + re.escape(sigla) + r'\b', re.IGNORECASE)
         texto = pattern.sub(sigla, texto)
 
@@ -231,6 +237,7 @@ def extract_fields(text):
                 city_clean = re.sub(r"^[,.\-\s]+", "", m_city.group(1).strip())
                 if "," in city_clean: city_clean = city_clean.split(",")[-1].strip()
                 data['localidade'] = city_clean
+        # Corta endereço no número (TEXTO)
         m_short = re.match(r"^(.*?,\s*\d+)", raw_address)
         data['endereco'] = m_short.group(1) if m_short else raw_address
 
@@ -241,6 +248,7 @@ def extract_fields(text):
         print(f"Tentando converter coordenadas: {lat}, {lon}")
         end_gps, loc_gps = buscar_endereco_gps(lat, lon)
         if end_gps:
+            # Sobrescreve se for GPS ou se o endereço anterior for ruim
             if not data['endereco'] or len(data['endereco']) < 5 or is_gps_text: data['endereco'] = end_gps
             if not data['localidade'] and loc_gps: data['localidade'] = loc_gps
 
@@ -297,12 +305,10 @@ def extract_fields(text):
     else:
         material_lines = []
 
-    # --- APLICAR FORMATAÇÃO (Sentence Case) ---
-    # Campos simples
+    # --- APLICAR FORMATAÇÃO (Sentence Case) NA PRE-VISUALIZAÇÃO ---
     for k in ['causa', 'endereco', 'localidade', 'veiculo', 'supervisor']:
         data[k] = formatar_texto(data[k])
 
-    # Itens/Tratativas
     material_lines = [formatar_texto(l) for l in material_lines]
 
     return data, material_lines
@@ -566,7 +572,7 @@ def generate():
               'supervisor': request.form.get('supervisor', ''), 'executantes_parsed': exec_list}
     itens_raw = request.form.get('itens', '')
 
-    # --- FORMATAÇÃO FINAL TAMBÉM NO GENERATE ---
+    # --- FORMATAÇÃO FINAL NO PDF ---
     for k in ['causa', 'endereco', 'localidade', 'veiculo', 'supervisor']:
         parsed[k] = formatar_texto(parsed[k])
 
