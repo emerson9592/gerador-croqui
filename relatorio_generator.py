@@ -24,7 +24,7 @@ DB_TECNICOS = {
     "emerson pereira": "0102059848",
     "erickson fernando": "0102053031",
     "joaquim otavio": "0102063826",
-    "julio cesar": "0102050030",
+    "julio cesar mendes": "0102050030",
     "leandro dias": "0102055139",
     "leonardo félix": "0102063528",
     "marcos paulo": "0124064676",
@@ -64,6 +64,7 @@ DB_TECNICOS = {
 
 # --- APELIDOS (Aliases) ---
 DB_ALIASES = {
+    "edenilson": "edenilson santos", "edenilson de souza": "edenilson santos",
     "agnaldo": "agnaldo venancio", "aguinaldo": "agnaldo venancio", "agnaldo brisola": "agnaldo venancio",
     "alessandro": "alessandro ferreira", "alessandro morais": "alessandro ferreira",
     "cleiton": "cleiton irani", "cleiton benfica": "cleiton irani",
@@ -89,10 +90,9 @@ DB_ALIASES = {
     "lucas": "lucas amorim", "marcio": "marcio barbosa", "marco": "marco de lucca",
     "marco lucca": "marco de lucca", "mauricio": "mauricio oliveira",
     "ruan vinicius": "ruan vinicius", "wendel": "wendel ribeiro",
-    "edenilson": "edenilson santos", "edenilson de souza": "edenilson santos",
 }
 
-# --- CONFIGURAÇÃO: VEÍCULOS (Nome Oficial -> Placa) ---
+# --- CONFIGURAÇÃO: VEÍCULOS ---
 DB_VEICULOS = {
     "leonardo félix": "RVW5G87",
     "leandro dias": "RVI3G26",
@@ -163,21 +163,15 @@ def buscar_endereco_gps(lat, lon):
 def formatar_texto(texto):
     if not texto: return ""
     texto = str(texto).strip()
-
-    # Capitaliza apenas a primeira letra
     texto = texto.capitalize()
 
-    # Lista de siglas que devem ficar SEMPRE em maiúsculo
     siglas = ["SP", "MG", "RJ", "ES", "SC", "PR", "RS", "MS", "MT", "GO", "DF", "TO", "BA", "SE", "AL", "PE", "PB",
               "RN", "CE", "PI", "MA", "PA", "AP", "AM", "RR", "RO", "AC", "TA", "SGM", "CEO", "CTOP", "OTDR", "VT",
               "PP", "XC"]
-
     for sigla in siglas:
         pattern = re.compile(r'\b' + re.escape(sigla) + r'\b', re.IGNORECASE)
         texto = pattern.sub(sigla, texto)
 
-    # REGEX PARA PLACAS (Mercosul e Antiga) - Preservar Maiúsculas
-    # Ex: AAA1A11 ou AAA-1111
     placas = re.findall(r'\b[a-zA-Z]{3}[-]?[0-9][a-zA-Z0-9][0-9]{2}\b', texto, re.IGNORECASE)
     for p in placas:
         texto = texto.replace(p, p.upper())
@@ -293,9 +287,8 @@ def extract_fields(text):
     data['executantes_parsed'] = exec_list
 
     # --- AUTO-PREENCHIMENTO DE VEÍCULO PELO TÉCNICO ---
-    # Se não achou veículo no texto, pega o do primeiro técnico encontrado
     if not data['veiculo'] and exec_list:
-        primeiro_tecnico = exec_list[0]['name']  # Nome oficial
+        primeiro_tecnico = exec_list[0]['name']
         if primeiro_tecnico in DB_VEICULOS:
             data['veiculo'] = DB_VEICULOS[primeiro_tecnico]
 
@@ -324,7 +317,6 @@ def extract_fields(text):
     else:
         material_lines = []
 
-    # Formatação Inicial
     for k in ['causa', 'endereco', 'localidade', 'veiculo', 'supervisor']:
         data[k] = formatar_texto(data[k])
     material_lines = [formatar_texto(l) for l in material_lines]
@@ -537,26 +529,242 @@ PASTE_HTML = """
 </head><body><div class="container"><h2>Gerador de Croquis Automático</h2><p class="info">Cole abaixo o texto do WhatsApp ou do Sistema <strong>GENESIS</strong>.</p><form method="post" action="/preencher"><textarea name="raw_text" placeholder="Cole aqui seu encerramento..."></textarea><br><button type="submit">Processar Texto &raquo;</button></form><a href="/form" class="manual-link">Preencher manualmente (Formulário em branco)</a></div></body></html>"""
 
 FORM_HTML = """
-<!doctype html><html><head><meta charset="utf-8"><title>Confirmar Dados</title>
-<style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;padding:20px}.container{max-width:900px;margin:auto;background:#fff;padding:30px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.05)}input,textarea{width:100%;padding:10px;margin-bottom:15px;border:1px solid #ccc;border-radius:5px;font-size:14px;box-sizing:border-box}textarea{height:150px;font-family:monospace;line-height:1.4}button{padding:12px 25px;font-size:16px;background:#28a745;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:bold}button:hover{background:#218838}h3{margin-top:25px;border-bottom:2px solid #eee;padding-bottom:10px;color:#444}label{font-weight:600;font-size:13px;color:#555;display:block;margin-bottom:5px}.tag{display:inline-block;background:#e9ecef;color:#333;padding:6px 12px;border-radius:20px;margin:4px;font-size:14px;border:1px solid #ddd}.tag span{margin-left:8px;cursor:pointer;color:#dc3545;font-weight:bold}.tag span:hover{color:#bd2130}#exec-list{max-height:150px;overflow-y:auto;border:1px solid #eee;border-radius:4px;margin-bottom:10px}#exec-list div:hover{background:#f8f9fa;color:#007bff}.back-btn{background:#6c757d;margin-right:10px;text-decoration:none;display:inline-block;color:white;padding:12px 25px;border-radius:5px;text-align:center}.back-btn:hover{background:#5a6268}</style>
-</head><script>document.addEventListener('DOMContentLoaded',()=>{
-let tecnicos=[];let selecionados={{ executantes_list|tojson }};
-let veiculosMap = {{ veiculos_map|tojson }};
-fetch('/tecnicos').then(r=>r.json()).then(d=>tecnicos=d);
-const input=document.getElementById('exec-input');const list=document.getElementById('exec-list');const hidden=document.getElementById('exec-hidden');const tagsBox=document.getElementById('exec-tags');
-const inputVeiculo = document.querySelector('input[name="veiculo"]');
-function atualizarHidden(){hidden.value=selecionados.join(', ')}
-function renderTags(){tagsBox.innerHTML='';selecionados.forEach(nome=>{const tag=document.createElement('div');tag.className='tag';tag.innerHTML=`${nome} <span>&times;</span>`;tag.querySelector('span').onclick=()=>{selecionados=selecionados.filter(n=>n!==nome);atualizarHidden();renderTags()};tagsBox.appendChild(tag)})}
-renderTags();atualizarHidden();
-input.addEventListener('input',()=>{const v=input.value.toLowerCase();list.innerHTML='';if(!v)return;tecnicos.filter(t=>t.includes(v)&&!selecionados.includes(t)).slice(0,8).forEach(t=>{const div=document.createElement('div');div.textContent=t;div.style.cursor='pointer';div.style.padding='8px';div.style.borderBottom='1px solid #f0f0f0';
-div.onclick=()=>{
-    selecionados.push(t);
-    // AUTO-PREENCHER VEICULO NO JS
-    if(veiculosMap[t] && inputVeiculo.value === "") {
-        inputVeiculo.value = veiculosMap[t];
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Confirmar Dados</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; position: relative; }
+        .container { max-width: 900px; margin: auto; background: #fff; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        input, textarea { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; font-size: 14px; box-sizing: border-box; }
+        textarea { height: 150px; font-family: monospace; line-height: 1.4; }
+        button { padding: 12px 25px; font-size: 16px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; color: #fff; }
+
+        #btn-validate { background: #28a745; width: 100%; margin-bottom: 10px; }
+        #btn-validate:hover { background: #218838; }
+
+        h3 { margin-top: 25px; border-bottom: 2px solid #eee; padding-bottom: 10px; color: #444; }
+        label { font-weight: 600; font-size: 13px; color: #555; display: block; margin-bottom: 5px; }
+
+        /* Error Style */
+        .error { border: 2px solid #dc3545 !important; background-color: #fff0f0; }
+
+        /* Modal Styles */
+        .modal-overlay { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.5); z-index: 999; display: none; 
+            justify-content: center; align-items: center; 
+        }
+        .modal-content { 
+            background: #fff; padding: 30px; border-radius: 8px; width: 90%; max-width: 500px; 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3); text-align: left; 
+        }
+        .modal-title { font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #dc3545; }
+        .modal-list { margin-bottom: 25px; padding-left: 20px; color: #333; }
+        .modal-actions { text-align: right; display: flex; justify-content: flex-end; gap: 10px; }
+
+        #btn-modal-back { background: #6c757d; }
+        #btn-modal-back:hover { background: #5a6268; }
+
+        #btn-modal-proceed { background: #007bff; }
+        #btn-modal-proceed:hover { background: #0056b3; }
+
+        .tag { display: inline-block; background: #e9ecef; color: #333; padding: 6px 12px; border-radius: 20px; margin: 4px; font-size: 14px; border: 1px solid #ddd; }
+        .tag span { margin-left: 8px; cursor: pointer; color: #dc3545; font-weight: bold; }
+        #exec-list { max-height: 150px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; margin-bottom: 10px; }
+        #exec-list div:hover { background: #f8f9fa; color: #007bff; }
+        .back-btn { background: #007bff; margin-right: 10px; text-decoration: none; display: inline-block; color: white; padding: 12px 25px; border-radius: 5px; text-align: center; }
+    </style>
+</head>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    let tecnicos = [];
+    let selecionados = {{ executantes_list|tojson }};
+    let veiculosMap = {{ veiculos_map|tojson }};
+
+    fetch('/tecnicos').then(r => r.json()).then(d => tecnicos = d);
+
+    const form = document.querySelector('form');
+    const input = document.getElementById('exec-input');
+    const list = document.getElementById('exec-list');
+    const hidden = document.getElementById('exec-hidden');
+    const tagsBox = document.getElementById('exec-tags');
+    const inputVeiculo = document.querySelector('input[name="veiculo"]');
+
+    // Modal Elements
+    const modalOverlay = document.getElementById('modal-overlay');
+    const modalList = document.getElementById('modal-list');
+    const btnValidate = document.getElementById('btn-validate');
+    const btnModalBack = document.getElementById('btn-modal-back');
+    const btnModalProceed = document.getElementById('btn-modal-proceed');
+
+    function atualizarHidden() {
+        hidden.value = selecionados.join(', ');
+        if(selecionados.length > 0) input.classList.remove('error');
     }
-    atualizarHidden();renderTags();input.value='';list.innerHTML=''};
-list.appendChild(div)})})});</script><body><div class="container"><form method="post" action="/generate" target="_blank"><h3>Dados Principais</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:15px"><div><label>TA</label><input name="ta" value="{{ data.get('ta','') }}"></div><div><label>Código Obra (SGM)</label><input name="codigo_obra" value="{{ data.get('codigo_obra','') }}"></div></div><label>Causa</label><input name="causa" value="{{ data.get('causa','') }}"><label>Endereço / Localização</label><input name="endereco" value="{{ data.get('endereco','') }}"><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px"><div><label>Localidade</label><input name="localidade" value="{{ data.get('localidade','') }}"></div><div><label>ES</label><input name="es" value="{{ data.get('es','') }}"></div><div><label>AT</label><input name="at" value="{{ data.get('at','') }}"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:15px"><div><label>Tronco</label><input name="tronco" value="{{ data.get('tronco','') }}"></div><div><label>Veículo</label><input name="veiculo" value="{{ data.get('veiculo','') }}"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:15px"><div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','Wellington') }}"></div><div><label>Data</label><input name="data" value="{{ data.get('data','') }}"></div></div><h3>Executantes</h3><div id="exec-tags" style="margin-bottom:10px"></div><input id="exec-input" placeholder="Digite o nome para adicionar mais (ex: Marcos)..."><div id="exec-list"></div><input type="hidden" name="executantes" id="exec-hidden"><h3>Tratativas (Itens)</h3><textarea name="itens">{{ itens_texto }}</textarea><div style="margin-top:30px;border-top:1px solid #eee;padding-top:20px"><a href="/" class="back-btn">&laquo; Colar Outro</a><button type="submit">Gerar PDF Final</button></div></form></div></body></html>"""
+
+    function renderTags() {
+        tagsBox.innerHTML = '';
+        selecionados.forEach(nome => {
+            const tag = document.createElement('div');
+            tag.className = 'tag';
+            tag.innerHTML = `${nome} <span>&times;</span>`;
+            tag.querySelector('span').onclick = () => {
+                selecionados = selecionados.filter(n => n !== nome);
+                atualizarHidden();
+                renderTags();
+            };
+            tagsBox.appendChild(tag);
+        });
+    }
+
+    renderTags();
+    atualizarHidden();
+
+    // Auto-complete
+    input.addEventListener('input', () => {
+        const v = input.value.toLowerCase();
+        list.innerHTML = '';
+        if (!v) return;
+        input.classList.remove('error');
+
+        tecnicos.filter(t => t.includes(v) && !selecionados.includes(t))
+            .slice(0, 8)
+            .forEach(t => {
+                const div = document.createElement('div');
+                div.textContent = t;
+                div.style.cursor = 'pointer';
+                div.style.padding = '8px';
+                div.style.borderBottom = '1px solid #f0f0f0';
+                div.onclick = () => {
+                    selecionados.push(t);
+                    if (veiculosMap[t] && inputVeiculo.value === "") {
+                        inputVeiculo.value = veiculosMap[t];
+                        inputVeiculo.classList.remove('error');
+                    }
+                    atualizarHidden();
+                    renderTags();
+                    input.value = '';
+                    list.innerHTML = '';
+                };
+                list.appendChild(div);
+            });
+    });
+
+    // Remover erro ao digitar
+    document.querySelectorAll('input, textarea').forEach(el => {
+        el.addEventListener('input', function() {
+            if(this.value.trim() !== '') this.classList.remove('error');
+        });
+    });
+
+    // --- LÓGICA DE VALIDAÇÃO COM MODAL ---
+
+    // 1. Clique em "Gerar PDF"
+    btnValidate.addEventListener('click', (e) => {
+        e.preventDefault();
+        let missing = [];
+        const fields = [
+            {name: 'ta', label: 'TA'},
+            {name: 'codigo_obra', label: 'Código Obra'},
+            {name: 'causa', label: 'Causa'},
+            {name: 'endereco', label: 'Endereço'},
+            {name: 'localidade', label: 'Localidade'},
+            {name: 'tronco', label: 'Tronco'},
+            {name: 'veiculo', label: 'Veículo'},
+            {name: 'supervisor', label: 'Supervisor'},
+            {name: 'data', label: 'Data'},
+            {name: 'itens', label: 'Tratativas (Itens)'}
+        ];
+
+        fields.forEach(f => {
+            const el = document.querySelector(`[name="${f.name}"]`);
+            if (!el.value.trim()) {
+                el.classList.add('error');
+                missing.push(f.label);
+            }
+        });
+
+        if (selecionados.length === 0) {
+            input.classList.add('error');
+            missing.push('Executantes');
+        }
+
+        if (missing.length > 0) {
+            // Mostra Modal
+            modalList.innerHTML = missing.map(item => `<li>${item}</li>`).join('');
+            modalOverlay.style.display = 'flex';
+        } else {
+            form.submit();
+        }
+    });
+
+    // 2. Botão "Voltar e Preencher"
+    btnModalBack.addEventListener('click', () => {
+        modalOverlay.style.display = 'none';
+        // Fica na tela com os campos vermelhos
+    });
+
+    // 3. Botão "Gerar Assim Mesmo"
+    btnModalProceed.addEventListener('click', () => {
+        modalOverlay.style.display = 'none';
+        form.submit();
+    });
+});
+</script>
+<body>
+    <div id="modal-overlay" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">Campos Obrigatórios Vazios</div>
+            <p>Os seguintes itens não foram preenchidos:</p>
+            <ul id="modal-list" class="modal-list"></ul>
+            <p style="font-size:14px; margin-bottom:20px;">Deseja corrigir ou continuar sem eles?</p>
+            <div class="modal-actions">
+                <button id="btn-modal-back" type="button">Voltar e Preencher</button>
+                <button id="btn-modal-proceed" type="button">Gerar Assim Mesmo</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <form method="post" action="/generate" target="_blank">
+            <h3>Dados Principais</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px">
+                <div><label>TA</label><input name="ta" value="{{ data.get('ta','') }}"></div>
+                <div><label>Código Obra (SGM)</label><input name="codigo_obra" value="{{ data.get('codigo_obra','') }}"></div>
+            </div>
+            <label>Causa</label><input name="causa" value="{{ data.get('causa','') }}">
+            <label>Endereço / Localização</label><input name="endereco" value="{{ data.get('endereco','') }}">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px">
+                <div><label>Localidade</label><input name="localidade" value="{{ data.get('localidade','') }}"></div>
+                <div><label>ES</label><input name="es" value="{{ data.get('es','') }}"></div>
+                <div><label>AT</label><input name="at" value="{{ data.get('at','') }}"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px">
+                <div><label>Tronco</label><input name="tronco" value="{{ data.get('tronco','') }}"></div>
+                <div><label>Veículo</label><input name="veiculo" value="{{ data.get('veiculo','') }}"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px">
+                <div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','Wellington') }}"></div>
+                <div><label>Data</label><input name="data" value="{{ data.get('data','') }}"></div>
+            </div>
+            <h3>Executantes</h3>
+            <div id="exec-tags" style="margin-bottom:10px"></div>
+            <input id="exec-input" placeholder="Digite o nome para adicionar mais (ex: Marcos)...">
+            <div id="exec-list"></div>
+            <input type="hidden" name="executantes" id="exec-hidden">
+            <h3>Tratativas (Itens)</h3>
+            <textarea name="itens">{{ itens_texto }}</textarea>
+            <div style="margin-top:30px;border-top:1px solid #eee;padding-top:20px">
+                <a href="/" class="back-btn">&laquo; Colar Outro</a>
+                <button id="btn-validate" type="submit">Gerar PDF</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
+"""
 
 
 @app.route('/')
