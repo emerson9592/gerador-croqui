@@ -12,11 +12,9 @@ app = Flask(__name__)
 app.secret_key = "chave_secreta_segura"
 
 # --- CONFIGURAÇÃO DA CHAVE DO GOOGLE MAPS ---
-# Cole sua chave dentro das aspas abaixo.
-# Se der erro ou não tiver chave, o sistema usará o ArcGIS (Gratuito e preciso).
-GOOGLE_API_KEY = "AIzaSyCZXAgi1EQntbx7U3SyZI3I4xWj25E2sq0"
+# Deixe vazio "" para usar o modo Gratuito (ArcGIS)
+GOOGLE_API_KEY = ""
 
-# NOME DO ARQUIVO PDF DE FUNDO
 TEMPLATE_PDF = "CROQUI.pdf"
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -29,7 +27,7 @@ DB_TECNICOS = {
     "emerson pereira": "0102059848",
     "erickson fernando": "0102053031",
     "joaquim otavio": "0102063826",
-    "julio cesar": "0102050030",
+    "julio mendes": "0102050030",
     "leandro dias": "0102055139",
     "leonardo félix": "0102063528",
     "marcos paulo": "0124064676",
@@ -134,7 +132,7 @@ FILTRO_LANCAMENTO = ["metr", "lancado", "lançado", "lancamento", "lançamento"]
 
 
 # ----------------------------
-# FUNÇÃO HÍBRIDA DE ENDEREÇO (GOOGLE > ARCGIS > NOMINATIM)
+# FUNÇÃO HÍBRIDA DE ENDEREÇO
 # ----------------------------
 def buscar_endereco_gps(lat, lon):
     rua = ""
@@ -142,50 +140,34 @@ def buscar_endereco_gps(lat, lon):
     cidade = ""
     estado = "SP"
 
-    # 1. TENTA GOOGLE MAPS (Se tiver chave)
+    # 1. TENTA GOOGLE MAPS
     if GOOGLE_API_KEY:
         try:
             gmaps = GoogleV3(api_key=GOOGLE_API_KEY)
             location = gmaps.reverse(f"{lat}, {lon}", timeout=5)
-
             if location:
-                # O Google pode retornar uma lista ou um objeto dependendo da versão
-                # Vamos garantir que pegamos o primeiro item se for lista
                 best_res = location[0] if isinstance(location, list) else location
-
-                # --- CORREÇÃO DO ERRO 'str' object has no attribute 'raw' ---
-                # Se por acaso best_res for uma string, apenas usamos ela e tentamos extrair algo
                 if isinstance(best_res, str):
-                    # Se for string, tentamos usar regex básico para achar numero
                     parts = best_res.split(',')
                     if parts: rua = parts[0]
-                    # Tenta achar numero na string
                     match_n = re.search(r",\s*(\d+)", best_res)
                     if match_n: numero = match_n.group(1)
-
-                # Se for um objeto com .raw (O comportamento esperado do Geopy)
                 elif hasattr(best_res, 'raw'):
                     components = best_res.raw.get('address_components', [])
                     for comp in components:
-                        if 'route' in comp['types']:
-                            rua = comp['long_name']
-                        if 'street_number' in comp['types']:
-                            numero = comp['long_name']
-                        if 'administrative_area_level_2' in comp['types']:  # Cidade
-                            cidade = comp['long_name']
-                        if 'administrative_area_level_1' in comp['types']:  # Estado
-                            estado = comp['short_name']
+                        if 'route' in comp['types']: rua = comp['long_name']
+                        if 'street_number' in comp['types']: numero = comp['long_name']
+                        if 'administrative_area_level_2' in comp['types']: cidade = comp['long_name']
+                        if 'administrative_area_level_1' in comp['types']: estado = comp['short_name']
 
-                # Se achou algo no Google, retorna
                 if rua:
                     end_str = f"{rua}, {numero}" if numero else f"{rua}, S/N"
                     loc_str = f"{cidade} - {estado}"
                     return end_str, loc_str
-
         except Exception as e:
-            print(f"Erro Google Maps (Ignorado, tentando ArcGIS): {e}")
+            print(f"Erro Google Maps: {e}")
 
-    # 2. TENTA ARCGIS (Melhor Gratuito para números)
+    # 2. TENTA ARCGIS
     if not numero:
         try:
             geo_arc = ArcGIS(user_agent="sistema_croqui_tecnico_v1")
@@ -193,21 +175,15 @@ def buscar_endereco_gps(lat, lon):
             if loc_arc and loc_arc.raw.get('address'):
                 full_text = loc_arc.raw['address']
                 parts = full_text.split(',')
-
                 if len(parts) > 0: rua = parts[0].strip()
-
-                # Tenta pegar número ou faixa (ex: 2038-2190)
                 if len(parts) > 1:
                     possible_num = parts[1].strip()
-                    if re.match(r"^\d+(?:-\d+)?$", possible_num):
-                        numero = possible_num
-
-                if not cidade and len(parts) >= 3:
-                    cidade = parts[-3].strip()
+                    if re.match(r"^\d+(?:-\d+)?$", possible_num): numero = possible_num
+                if not cidade and len(parts) >= 3: cidade = parts[-3].strip()
         except:
             pass
 
-    # 3. TENTA NOMINATIM (Backup para nomes)
+    # 3. TENTA NOMINATIM
     try:
         if not rua or not cidade:
             geo_nom = Nominatim(user_agent="sistema_croqui_tecnico_v1")
@@ -220,7 +196,6 @@ def buscar_endereco_gps(lat, lon):
     except:
         pass
 
-    # MONTA O RESULTADO FINAL
     end_parts = []
     if rua: end_parts.append(rua)
     if numero:
@@ -229,57 +204,44 @@ def buscar_endereco_gps(lat, lon):
         end_parts.append(", S/N")
 
     if not rua: return None, None
-
     endereco_final = "".join(end_parts)
     localidade_final = f"{cidade} - {estado}" if cidade else ""
-
     return endereco_final, localidade_final
 
 
-# ----------------------------
-# FUNÇÃO: FORMATAR TEXTO
-# ----------------------------
 def formatar_texto(texto):
     if not texto: return ""
-    texto = str(texto).strip()
-    texto = texto.capitalize()
-
+    texto = str(texto).strip().capitalize()
     siglas = ["SP", "MG", "RJ", "ES", "SC", "PR", "RS", "MS", "MT", "GO", "DF", "TO", "BA", "SE", "AL", "PE", "PB",
               "RN", "CE", "PI", "MA", "PA", "AP", "AM", "RR", "RO", "AC", "TA", "SGM", "CEO", "CTOP", "OTDR", "VT",
               "PP", "XC"]
     for sigla in siglas:
         pattern = re.compile(r'\b' + re.escape(sigla) + r'\b', re.IGNORECASE)
         texto = pattern.sub(sigla, texto)
-
     placas = re.findall(r'\b[a-zA-Z]{3}[-]?[0-9][a-zA-Z0-9][0-9]{2}\b', texto, re.IGNORECASE)
-    for p in placas:
-        texto = texto.replace(p, p.upper())
-
+    for p in placas: texto = texto.replace(p, p.upper())
     return texto
 
 
-# ----------------------------
-# Funções Auxiliares (Parsing)
-# ----------------------------
 def pct_to_pt(xpct, ypct, width_pt, height_pt):
     return xpct * width_pt, ypct * height_pt
 
 
 def extract_fields(text):
-    data = {key: '' for key in ['ta', 'codigo_obra', 'causa', 'endereco',
-                                'localidade', 'es', 'at', 'tronco',
-                                'veiculo', 'data', 'supervisor']}
+    data = {key: '' for key in
+            ['ta', 'codigo_obra', 'causa', 'endereco', 'localidade', 'es', 'at', 'tronco', 'veiculo', 'data',
+             'supervisor']}
     text = text.replace('\r\n', '\n').strip()
 
     match_sigla = re.search(r"\b(?!(?:com|net|org|gov|www|vivo|http)\b)([a-zA-Z]{3})\.([a-zA-Z]{2})\b", text,
                             re.IGNORECASE)
     if match_sigla:
-        data['es'] = match_sigla.group(1).upper()
+        data['es'] = match_sigla.group(1).upper();
         data['at'] = match_sigla.group(2).upper()
 
     match_header = re.search(r"(\d{8,})\s*-\s*TA\s*(\d{8,})", text)
     if match_header:
-        data['codigo_obra'] = match_header.group(1)
+        data['codigo_obra'] = match_header.group(1);
         data['ta'] = match_header.group(2)
     else:
         m_ta = re.search(r"TA\s*[:\-]?\s*(\d{5,})", text, re.IGNORECASE)
@@ -290,17 +252,13 @@ def extract_fields(text):
     if not data['ta']:
         m_ta_loose = re.search(r"\b(35\d{7})\b", text)
         if m_ta_loose: data['ta'] = m_ta_loose.group(1)
-
     if not data['codigo_obra']:
         m_sgm_loose = re.search(r"\b(20\d{8})\b", text)
         if m_sgm_loose: data['codigo_obra'] = m_sgm_loose.group(1)
 
-    patterns = [
-        (r"(?:causa|motivo)\s*[:;\-]?\s*(.+)", 'causa'),
-        (r"(?:localidade|cidade)\s*[:;\-]?\s*(.+)", 'localidade'),
-        (r"ve[ií]culo\s*[:;\-]?\s*(\S+)", 'veiculo'),
-        (r"data\s*[:;\-]?\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})", 'data'),
-    ]
+    patterns = [(r"(?:causa|motivo)\s*[:;\-]?\s*(.+)", 'causa'),
+                (r"(?:localidade|cidade)\s*[:;\-]?\s*(.+)", 'localidade'), (r"ve[ií]culo\s*[:;\-]?\s*(\S+)", 'veiculo'),
+                (r"data\s*[:;\-]?\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})", 'data')]
     for pattern, key in patterns:
         if not data[key]:
             m = re.search(r"(?m)^.*?" + pattern, text, re.IGNORECASE)
@@ -365,16 +323,13 @@ def extract_fields(text):
         if nome_oficial not in nomes_encontrados_set: tentar_adicionar(apelido, nome_oficial)
 
     data['executantes_parsed'] = exec_list
-
     if not data['veiculo'] and exec_list:
         primeiro_tecnico = exec_list[0]['name']
-        if primeiro_tecnico in DB_VEICULOS:
-            data['veiculo'] = DB_VEICULOS[primeiro_tecnico]
+        if primeiro_tecnico in DB_VEICULOS: data['veiculo'] = DB_VEICULOS[primeiro_tecnico]
 
     raw_materials = ""
     match_genesis = re.search(r"Ação de Recuperação:[\s\S]*?(?=\nMaterial|\nData|\Z)", text, re.IGNORECASE)
     match_manual = re.search(r"O QUE FOI FEITO.*:([\s\S]*?)(?=\n\d+\)|Material|\Z)", text, re.IGNORECASE)
-
     if match_genesis:
         raw_materials = re.sub(r"Ação de Recuperação:\s*", "", match_genesis.group(0), flags=re.IGNORECASE)
     elif match_manual:
@@ -395,10 +350,8 @@ def extract_fields(text):
     else:
         material_lines = []
 
-    for k in ['causa', 'endereco', 'localidade', 'veiculo', 'supervisor']:
-        data[k] = formatar_texto(data[k])
+    for k in ['causa', 'endereco', 'localidade', 'veiculo', 'supervisor']: data[k] = formatar_texto(data[k])
     material_lines = [formatar_texto(l) for l in material_lines]
-
     return data, material_lines
 
 
@@ -415,8 +368,7 @@ def detect_launch(material_lines):
 
 def detect_double_point(material_lines):
     joined = " ".join(material_lines).lower()
-    if re.search(r"\b(?:02|2)\s*(?:reabertura|abertura|ceo|caixa|ctop|emenda)", joined):
-        return True
+    if re.search(r"\b(?:02|2)\s*(?:reabertura|abertura|ceo|caixa|ctop|emenda)", joined): return True
     return False
 
 
@@ -437,14 +389,12 @@ def dividir_tratativas(material_lines):
         texto = linha.strip()
         low = texto.lower()
         m = re.match(r"(\d+)\s*[-xX]?\s*(.+)", low)
-        if not m:
-            itens.append({"qtd": 1, "nome": low, "orig": texto})
-            continue
+        if not m: itens.append({"qtd": 1, "nome": low, "orig": texto}); continue
         itens.append({"qtd": int(m.group(1)), "nome": m.group(2).strip(), "orig": texto})
 
     especiais_unitarios = [i for i in itens if i["qtd"] == 1 and any(k in i["nome"] for k in especiais)]
     if len(especiais_unitarios) == 2:
-        p1.append(especiais_unitarios[0]["orig"])
+        p1.append(especiais_unitarios[0]["orig"]);
         p2.append(especiais_unitarios[1]["orig"])
         restantes = [i for i in itens if i not in especiais_unitarios]
     else:
@@ -452,20 +402,18 @@ def dividir_tratativas(material_lines):
 
     for item in restantes:
         qtd, nome, orig = item["qtd"], item["nome"], item["orig"]
-        if any(f in nome for f in FILTRO_LANCAMENTO):
-            p1.append(orig)
-            continue
+        if any(f in nome for f in FILTRO_LANCAMENTO): p1.append(orig); continue
         if any(k in nome for k in especiais):
             if qtd == 1:
                 p1.append(orig)
             else:
-                metade = qtd // 2
+                metade = qtd // 2;
                 resto = qtd - metade
                 if metade > 0: p1.append(f"{metade} {nome}")
                 if resto > 0: p2.append(f"{resto} {nome}")
             continue
         if any(k in nome for k in divisiveis):
-            metade = qtd // 2
+            metade = qtd // 2;
             resto = qtd - metade
             if metade > 0: p1.append(f"{metade} {nome}")
             if resto > 0: p2.append(f"{resto} {nome}")
@@ -478,11 +426,11 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
     if not os.path.exists(TEMPLATE_PDF):
         width_pt, height_pt = 595.27, 841.89
     else:
-        tpl = PdfReader(TEMPLATE_PDF)
-        page0 = tpl.pages[0]
+        tpl = PdfReader(TEMPLATE_PDF);
+        page0 = tpl.pages[0];
         media = page0.MediaBox
-        llx, lly, urx, ury = map(float, media)
-        width_pt = urx - llx
+        llx, lly, urx, ury = map(float, media);
+        width_pt = urx - llx;
         height_pt = ury - lly
 
     c = canvas.Canvas(str(overlay_path), pagesize=(width_pt, height_pt))
@@ -498,8 +446,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         x, y = pct_to_pt(xpct, ypct, width_pt, height_pt)
         c.setFont("Helvetica", size)
         lines = str(text).split('\n')
-        for i, ln in enumerate(lines):
-            c.drawString(x, y - (i * (size + 2)), ln)
+        for i, ln in enumerate(lines): c.drawString(x, y - (i * (size + 2)), ln)
 
     for key, val in parsed.items():
         if key not in ['executantes_parsed']: put_xy(key, val, size=9)
@@ -514,16 +461,15 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
     mxp, myp = COORDS['materials_block']
     mx, my = pct_to_pt(mxp, myp, width_pt, height_pt)
     c.setFont('Helvetica', 8)
-    for i, line in enumerate(materials_raw[:20]):
-        c.drawString(mx, my - (i * 10), line)
+    for i, line in enumerate(materials_raw[:20]): c.drawString(mx, my - (i * 10), line)
 
     left_pct, bottom_pct, right_pct, top_pct = COORDS['croqui_rect']
     draw_y = height_pt * ((top_pct + bottom_pct) / 2)
     left_x = width_pt * (left_pct + 0.05)
     right_x = width_pt * (right_pct - 0.05)
-    c.setLineWidth(2)
+    c.setLineWidth(2);
     c.setDash(4, 2)
-    c.line(left_x, draw_y, right_x, draw_y)
+    c.line(left_x, draw_y, right_x, draw_y);
     c.setDash([])
 
     if parsed.get('endereco'):
@@ -534,7 +480,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         c.drawString(cx - (tw / 2), draw_y - 100, addr)
 
     if len(pp_list) == 0:
-        total_width = right_x - left_x
+        total_width = right_x - left_x;
         mid_x = left_x + total_width / 2
         c.circle(left_x, draw_y, 4, fill=1);
         c.drawString(left_x - 12, draw_y - 20, "Início")
@@ -542,62 +488,55 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         c.drawString(mid_x - 8, draw_y - 20, "XC")
         c.circle(right_x, draw_y, 4, fill=1);
         c.drawString(right_x - 8, draw_y - 20, "Fim")
-
-        box_width, offset = 220, 35
+        box_width, offset = 220, 35;
         box_height = 15 + 12 + (len(materials_raw) * 10)
-        box_x = mid_x - (box_width / 2)
+        box_x = mid_x - (box_width / 2);
         box_y = draw_y + offset
         c.rect(box_x, box_y, box_width, box_height, fill=0)
-        c.setFont("Helvetica-Bold", 8)
+        c.setFont("Helvetica-Bold", 8);
         c.drawString(box_x + 5, box_y + box_height - 10, "Tratativas")
-        c.setFont("Helvetica", 8)
+        c.setFont("Helvetica", 8);
         text_start_y = box_y + box_height - 12 - 8
         for i, item in enumerate(materials_raw): c.drawString(box_x + 5, text_start_y - (i * 10), item)
-        c.line(mid_x, draw_y, mid_x, box_y)
+        c.line(mid_x, draw_y, mid_x, box_y);
         c.drawString(mid_x - 4, box_y - 10, "↑")
     else:
         p1_list, p2_list = dividir_tratativas(materials_raw)
         offset, box_width = 30, 180
-        h1 = 15 + 12 + (len(p1_list) * 10)
+        h1 = 15 + 12 + (len(p1_list) * 10);
         bx1, by1 = left_x - 20, draw_y + offset
         c.rect(bx1, by1, box_width, h1, fill=0)
-        c.setFont("Helvetica-Bold", 8)
+        c.setFont("Helvetica-Bold", 8);
         c.drawString(bx1 + 5, by1 + h1 - 10, "Tratativas E1")
-        c.setFont("Helvetica", 8)
+        c.setFont("Helvetica", 8);
         tsy1 = by1 + h1 - 20
         for i, item in enumerate(p1_list): c.drawString(bx1 + 5, tsy1 - (i * 10), item)
         c.line(left_x, draw_y, bx1 + box_width / 2, by1)
-        h2 = 15 + 12 + (len(p2_list) * 10)
+        h2 = 15 + 12 + (len(p2_list) * 10);
         bx2, by2 = right_x - box_width + 20, draw_y + offset
         c.rect(bx2, by2, box_width, h2, fill=0)
-        c.setFont("Helvetica-Bold", 8)
+        c.setFont("Helvetica-Bold", 8);
         c.drawString(bx2 + 5, by2 + h2 - 10, "Tratativas E2")
-        c.setFont("Helvetica", 8)
+        c.setFont("Helvetica", 8);
         tsy2 = by2 + h2 - 20
         for i, item in enumerate(p2_list): c.drawString(bx2 + 5, tsy2 - (i * 10), item)
         c.line(right_x, draw_y, bx2 + box_width / 2, by2)
-        total_width = right_x - left_x
-        step = total_width / len(pp_list)
+
+        total_width = right_x - left_x;
+        step = total_width / len(pp_list);
         cur_x = left_x
         c.circle(cur_x, draw_y, 4, fill=1)
-
         has_cable = sum(pp_list) > 0
-        if has_cable:
-            c.drawString(cur_x - 10, draw_y + 15, "VT 15m")
-
+        if has_cable: c.drawString(cur_x - 10, draw_y + 15, "VT 15m")
         c.drawString(cur_x - 10, draw_y - 20, "XC Inicial")
         for i, dist in enumerate(pp_list):
-            nxt_x = cur_x + step
+            nxt_x = cur_x + step;
             mid = (cur_x + nxt_x) / 2
-
-            if dist > 0 and has_cable:
-                c.drawString(mid - 15, draw_y + 5, f"PP {dist}m")
-
+            if dist > 0 and has_cable: c.drawString(mid - 15, draw_y + 5, f"PP {dist}m")
             c.circle(nxt_x, draw_y, 4, fill=1)
             if i == len(pp_list) - 1:
                 c.drawString(nxt_x - 10, draw_y - 20, "XC Final")
-                if has_cable:
-                    c.drawString(nxt_x - 10, draw_y + 15, "VT 15m")
+                if has_cable: c.drawString(nxt_x - 10, draw_y + 15, "VT 15m")
             else:
                 c.drawString(nxt_x - 8, draw_y - 20, "XC")
             cur_x = nxt_x
@@ -615,33 +554,75 @@ def merge_overlay(overlay_path, out_path):
     PdfWriter(str(out_path), trailer=template).write()
 
 
-# --- TELAS HTML ---
+# --- PASTE HTML (MOBILE OPTIMIZED) ---
 PASTE_HTML = """
-<!doctype html><html><head><meta charset="utf-8"><title>Colar Relatório</title>
-<style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;padding:40px;text-align:center}.container{max-width:700px;margin:auto;background:#fff;padding:40px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1)}textarea{width:100%;height:300px;padding:15px;margin-bottom:20px;border:2px solid #ddd;border-radius:8px;font-size:14px;font-family:monospace;resize:vertical;background-color:#fafafa}textarea:focus{border-color:#007bff;outline:none;background-color:#fff}button{padding:15px 30px;font-size:18px;background:#007bff;color:#fff;border:none;border-radius:6px;cursor:pointer;transition:0.2s;font-weight:bold}button:hover{background:#0056b3}h2{color:#333;margin-bottom:10px}.manual-link{display:block;margin-top:20px;color:#666;text-decoration:none;font-size:14px}.manual-link:hover{text-decoration:underline;color:#007bff}.info{color:#666;font-size:14px;margin-bottom:25px}</style>
-</head><body><div class="container"><h2>Gerador de Croquis Automático</h2><p class="info">Cole abaixo o texto do WhatsApp ou do Sistema <strong>GENESIS</strong>.</p><form method="post" action="/preencher"><textarea name="raw_text" placeholder="Cole aqui seu encerramento..."></textarea><br><button type="submit">Processar Texto &raquo;</button></form><a href="/form" class="manual-link">Preencher manualmente (Formulário em branco)</a></div></body></html>"""
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Colar Relatório</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; padding: 20px; text-align: center; margin: 0; }
+        .container { width: 90%; max-width: 700px; margin: 20px auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 300px; padding: 15px; margin-bottom: 20px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px; font-family: monospace; resize: vertical; background-color: #fafafa; box-sizing: border-box; }
+        textarea:focus { border-color: #007bff; outline: none; background-color: #fff; }
+        button { width: 100%; padding: 15px; font-size: 18px; background: #007bff; color: #fff; border: none; border-radius: 6px; cursor: pointer; transition: 0.2s; font-weight: bold; margin-bottom: 15px; }
+        button:hover { background: #0056b3; }
+        h2 { color: #333; margin-bottom: 10px; font-size: 24px; }
+        .manual-link { display: block; margin-top: 15px; color: #666; text-decoration: none; font-size: 16px; padding: 10px; }
+        .manual-link:hover { text-decoration: underline; color: #007bff; }
+        .info { color: #666; font-size: 14px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Gerador de Croquis</h2>
+    <p class="info">Cole abaixo o texto do WhatsApp ou do Sistema <strong>GENESIS</strong>.</p>
+    <form method="post" action="/preencher">
+        <textarea name="raw_text" placeholder="Cole aqui seu encerramento..."></textarea>
+        <br>
+        <button type="submit">Processar Texto &raquo;</button>
+    </form>
+    <a href="/form" class="manual-link">Preencher manualmente</a>
+</div>
+</body>
+</html>
+"""
 
+# --- FORM HTML (MOBILE OPTIMIZED + MODAL) ---
 FORM_HTML = """
 <!doctype html>
 <html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Confirmar Dados</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; position: relative; }
-        .container { max-width: 900px; margin: auto; background: #fff; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-        input, textarea { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; font-size: 14px; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 10px; margin: 0; }
+        .container { width: 95%; max-width: 900px; margin: 10px auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); box-sizing: border-box; }
+        input, textarea { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; font-size: 16px; box-sizing: border-box; }
         textarea { height: 150px; font-family: monospace; line-height: 1.4; }
-        button { padding: 12px 25px; font-size: 16px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; color: #fff; }
+        button { padding: 15px; font-size: 16px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; color: #fff; width: 100%; margin-bottom: 10px; }
 
-        #btn-validate { background: #28a745; width: 100%; margin-bottom: 10px; }
+        #btn-validate { background: #28a745; }
         #btn-validate:hover { background: #218838; }
 
-        h3 { margin-top: 25px; border-bottom: 2px solid #eee; padding-bottom: 10px; color: #444; }
-        label { font-weight: 600; font-size: 13px; color: #555; display: block; margin-bottom: 5px; }
+        h3 { margin-top: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; color: #444; font-size: 18px; }
+        label { font-weight: 600; font-size: 14px; color: #555; display: block; margin-bottom: 5px; }
 
-        /* Error Style */
         .error { border: 2px solid #dc3545 !important; background-color: #fff0f0; }
+
+        /* Grid Layout for Desktop */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
+
+        /* Mobile Adjustments */
+        @media (max-width: 768px) {
+            .grid-2, .grid-3 { grid-template-columns: 1fr; gap: 10px; }
+            .container { padding: 15px; width: 100%; }
+            h3 { font-size: 1.2rem; }
+        }
 
         /* Modal Styles */
         .modal-overlay { 
@@ -650,25 +631,22 @@ FORM_HTML = """
             justify-content: center; align-items: center; 
         }
         .modal-content { 
-            background: #fff; padding: 30px; border-radius: 8px; width: 90%; max-width: 500px; 
+            background: #fff; padding: 25px; border-radius: 12px; width: 90%; max-width: 400px; 
             box-shadow: 0 5px 15px rgba(0,0,0,0.3); text-align: left; 
         }
-        .modal-title { font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #dc3545; }
-        .modal-list { margin-bottom: 25px; padding-left: 20px; color: #333; }
-        .modal-actions { text-align: right; display: flex; justify-content: flex-end; gap: 10px; }
+        .modal-title { font-size: 1.2rem; font-weight: bold; margin-bottom: 15px; color: #dc3545; }
+        .modal-list { margin-bottom: 20px; padding-left: 20px; color: #333; }
+        .modal-actions { display: flex; flex-direction: column; gap: 10px; }
 
         #btn-modal-back { background: #6c757d; }
-        #btn-modal-back:hover { background: #5a6268; }
-
         #btn-modal-proceed { background: #007bff; }
-        #btn-modal-proceed:hover { background: #0056b3; }
 
-        .tag { display: inline-block; background: #e9ecef; color: #333; padding: 6px 12px; border-radius: 20px; margin: 4px; font-size: 14px; border: 1px solid #ddd; }
-        .tag span { margin-left: 8px; cursor: pointer; color: #dc3545; font-weight: bold; }
+        .tag { display: inline-block; background: #e9ecef; color: #333; padding: 8px 14px; border-radius: 20px; margin: 4px; font-size: 14px; border: 1px solid #ddd; }
+        .tag span { margin-left: 10px; cursor: pointer; color: #dc3545; font-weight: bold; font-size: 1.2em; vertical-align: middle; }
         #exec-list { max-height: 150px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; margin-bottom: 10px; }
+        #exec-list div { padding: 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
         #exec-list div:hover { background: #f8f9fa; color: #007bff; }
-        .back-btn { background: #007bff; margin-right: 10px; text-decoration: none; display: inline-block; color: white; padding: 12px 25px; border-radius: 5px; text-align: center; }
-        .back-btn:hover { background: #0056b3; }
+        .back-btn { background: #007bff; text-decoration: none; display: block; color: white; padding: 15px; border-radius: 5px; text-align: center; margin-bottom: 10px; font-weight: bold; }
     </style>
 </head>
 <script>
@@ -726,9 +704,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .forEach(t => {
                 const div = document.createElement('div');
                 div.textContent = t;
-                div.style.cursor = 'pointer';
-                div.style.padding = '8px';
-                div.style.borderBottom = '1px solid #f0f0f0';
                 div.onclick = () => {
                     selecionados.push(t);
                     if (veiculosMap[t] && inputVeiculo.value === "") {
@@ -794,12 +769,12 @@ document.addEventListener('DOMContentLoaded', () => {
 <body>
     <div id="modal-overlay" class="modal-overlay">
         <div class="modal-content">
-            <div class="modal-title">Campos Obrigatórios Vazios</div>
-            <p>Os seguintes itens não foram preenchidos:</p>
+            <div class="modal-title">Atenção: Campos Vazios</div>
+            <p>Você esqueceu de preencher:</p>
             <ul id="modal-list" class="modal-list"></ul>
-            <p style="font-size:14px; margin-bottom:20px;">Deseja corrigir ou continuar sem eles?</p>
+            <p style="font-size:14px; margin-bottom:20px;">Deseja corrigir ou gerar assim mesmo?</p>
             <div class="modal-actions">
-                <button id="btn-modal-back" type="button">Voltar e Preencher</button>
+                <button id="btn-modal-back" type="button">Voltar e Corrigir</button>
                 <button id="btn-modal-proceed" type="button">Gerar Assim Mesmo</button>
             </div>
         </div>
@@ -808,35 +783,35 @@ document.addEventListener('DOMContentLoaded', () => {
     <div class="container">
         <form method="post" action="/generate" target="_blank">
             <h3>Dados Principais</h3>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px">
+            <div class="grid-2">
                 <div><label>TA</label><input name="ta" value="{{ data.get('ta','') }}"></div>
                 <div><label>Código Obra (SGM)</label><input name="codigo_obra" value="{{ data.get('codigo_obra','') }}"></div>
             </div>
             <label>Causa</label><input name="causa" value="{{ data.get('causa','') }}">
             <label>Endereço / Localização</label><input name="endereco" value="{{ data.get('endereco','') }}">
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px">
+            <div class="grid-3">
                 <div><label>Localidade</label><input name="localidade" value="{{ data.get('localidade','') }}"></div>
                 <div><label>ES</label><input name="es" value="{{ data.get('es','') }}"></div>
                 <div><label>AT</label><input name="at" value="{{ data.get('at','') }}"></div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px">
+            <div class="grid-2">
                 <div><label>Tronco</label><input name="tronco" value="{{ data.get('tronco','') }}"></div>
                 <div><label>Veículo</label><input name="veiculo" value="{{ data.get('veiculo','') }}"></div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px">
+            <div class="grid-2">
                 <div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','Wellington') }}"></div>
                 <div><label>Data</label><input name="data" value="{{ data.get('data','') }}"></div>
             </div>
             <h3>Executantes</h3>
             <div id="exec-tags" style="margin-bottom:10px"></div>
-            <input id="exec-input" placeholder="Digite o nome para adicionar mais (ex: Marcos)...">
+            <input id="exec-input" placeholder="Digite o nome para adicionar mais...">
             <div id="exec-list"></div>
             <input type="hidden" name="executantes" id="exec-hidden">
             <h3>Tratativas (Itens)</h3>
             <textarea name="itens">{{ itens_texto }}</textarea>
             <div style="margin-top:30px;border-top:1px solid #eee;padding-top:20px">
-                <a href="/" class="back-btn">&laquo; Colar Outro</a>
                 <button id="btn-validate" type="submit">Gerar PDF</button>
+                <a href="/" class="back-btn">&laquo; Colar Outro</a>
             </div>
         </form>
     </div>
@@ -911,7 +886,7 @@ def generate():
         if total_len > 0:
             pp_list = generate_pps(total_len)
         elif is_double_point:
-            pp_list = [0, 0, 0, 0]  # 4 itens para gerar 3 vãos intermediários
+            pp_list = [0, 0, 0, 0]
 
     codigo = parsed.get('ta') or f"doc_{random.randint(1000, 9999)}"
     codigo = re.sub(r'[^\w\-]', '', codigo)
