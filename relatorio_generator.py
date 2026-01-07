@@ -311,7 +311,7 @@ def extract_fields(text):
     elif not data['tronco']:
         m_tr_old = re.search(r"tronco\s*[:;\-]?\s*([0-9]+)", text, re.IGNORECASE)
         if m_tr_old: data['tronco'] = m_tr_old.group(1)
-    data['supervisor'] = "Wellington"
+    data['supervisor'] = "Welington"
     exec_list = []
     text_lower = text.lower()
     nomes_encontrados_set = set()
@@ -796,7 +796,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div><label>Veículo</label><input name="veiculo" value="{{ data.get('veiculo','') }}"></div>
             </div>
             <div class="grid-2">
-                <div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','Wellington') }}"></div>
+                <div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','Welington') }}"></div>
                 <div><label>Data</label><input name="data" value="{{ data.get('data','') }}"></div>
             </div>
             <h3>Executantes</h3>
