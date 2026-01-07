@@ -4,19 +4,24 @@ from pdfrw import PdfReader, PdfWriter, PageMerge
 from pathlib import Path
 import re, random, os, json
 
-# --- NOVA BIBLIOTECA PARA MAPAS ---
-from geopy.geocoders import Nominatim
+# --- BIBLIOTECAS DE MAPA ---
+from geopy.geocoders import Nominatim, ArcGIS, GoogleV3
 from geopy.exc import GeocoderTimedOut
 
 app = Flask(__name__)
 app.secret_key = "chave_secreta_segura"
+
+# --- CONFIGURAÇÃO DA CHAVE DO GOOGLE MAPS ---
+# Cole sua chave dentro das aspas abaixo.
+# Se der erro ou não tiver chave, o sistema usará o ArcGIS (Gratuito e preciso).
+GOOGLE_API_KEY = "AIzaSyCZXAgi1EQntbx7U3SyZI3I4xWj25E2sq0"
 
 # NOME DO ARQUIVO PDF DE FUNDO
 TEMPLATE_PDF = "CROQUI.pdf"
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# --- CONFIGURAÇÃO: BANCO DE DADOS DE TÉCNICOS ---
+# --- BANCO DE DADOS DE TÉCNICOS ---
 DB_TECNICOS = {
     "agnaldo venancio": "0102060458",
     "alessandro ferreira": "0102047065",
@@ -62,7 +67,7 @@ DB_TECNICOS = {
     "edenilson santos": "sem RE"
 }
 
-# --- APELIDOS (Aliases) ---
+# --- APELIDOS ---
 DB_ALIASES = {
     "edenilson": "edenilson santos", "edenilson de souza": "edenilson santos",
     "agnaldo": "agnaldo venancio", "aguinaldo": "agnaldo venancio", "agnaldo brisola": "agnaldo venancio",
@@ -93,7 +98,7 @@ DB_ALIASES = {
     "ruan vinicius": "ruan vinicius", "wendel": "wendel ribeiro",
 }
 
-# --- CONFIGURAÇÃO: VEÍCULOS ---
+# --- VEÍCULOS ---
 DB_VEICULOS = {
     "leonardo félix": "RVW5G87",
     "leandro dias": "RVI3G26",
@@ -129,37 +134,110 @@ FILTRO_LANCAMENTO = ["metr", "lancado", "lançado", "lancamento", "lançamento"]
 
 
 # ----------------------------
-# FUNÇÃO NOVA: BUSCAR ENDEREÇO VIA GPS
+# FUNÇÃO HÍBRIDA DE ENDEREÇO (GOOGLE > ARCGIS > NOMINATIM)
 # ----------------------------
 def buscar_endereco_gps(lat, lon):
+    rua = ""
+    numero = ""
+    cidade = ""
+    estado = "SP"
+
+    # 1. TENTA GOOGLE MAPS (Se tiver chave)
+    if GOOGLE_API_KEY:
+        try:
+            gmaps = GoogleV3(api_key=GOOGLE_API_KEY)
+            location = gmaps.reverse(f"{lat}, {lon}", timeout=5)
+
+            if location:
+                # O Google pode retornar uma lista ou um objeto dependendo da versão
+                # Vamos garantir que pegamos o primeiro item se for lista
+                best_res = location[0] if isinstance(location, list) else location
+
+                # --- CORREÇÃO DO ERRO 'str' object has no attribute 'raw' ---
+                # Se por acaso best_res for uma string, apenas usamos ela e tentamos extrair algo
+                if isinstance(best_res, str):
+                    # Se for string, tentamos usar regex básico para achar numero
+                    parts = best_res.split(',')
+                    if parts: rua = parts[0]
+                    # Tenta achar numero na string
+                    match_n = re.search(r",\s*(\d+)", best_res)
+                    if match_n: numero = match_n.group(1)
+
+                # Se for um objeto com .raw (O comportamento esperado do Geopy)
+                elif hasattr(best_res, 'raw'):
+                    components = best_res.raw.get('address_components', [])
+                    for comp in components:
+                        if 'route' in comp['types']:
+                            rua = comp['long_name']
+                        if 'street_number' in comp['types']:
+                            numero = comp['long_name']
+                        if 'administrative_area_level_2' in comp['types']:  # Cidade
+                            cidade = comp['long_name']
+                        if 'administrative_area_level_1' in comp['types']:  # Estado
+                            estado = comp['short_name']
+
+                # Se achou algo no Google, retorna
+                if rua:
+                    end_str = f"{rua}, {numero}" if numero else f"{rua}, S/N"
+                    loc_str = f"{cidade} - {estado}"
+                    return end_str, loc_str
+
+        except Exception as e:
+            print(f"Erro Google Maps (Ignorado, tentando ArcGIS): {e}")
+
+    # 2. TENTA ARCGIS (Melhor Gratuito para números)
+    if not numero:
+        try:
+            geo_arc = ArcGIS(user_agent="sistema_croqui_tecnico_v1")
+            loc_arc = geo_arc.reverse(f"{lat}, {lon}", timeout=5)
+            if loc_arc and loc_arc.raw.get('address'):
+                full_text = loc_arc.raw['address']
+                parts = full_text.split(',')
+
+                if len(parts) > 0: rua = parts[0].strip()
+
+                # Tenta pegar número ou faixa (ex: 2038-2190)
+                if len(parts) > 1:
+                    possible_num = parts[1].strip()
+                    if re.match(r"^\d+(?:-\d+)?$", possible_num):
+                        numero = possible_num
+
+                if not cidade and len(parts) >= 3:
+                    cidade = parts[-3].strip()
+        except:
+            pass
+
+    # 3. TENTA NOMINATIM (Backup para nomes)
     try:
-        geolocator = Nominatim(user_agent="sistema_croqui_tecnico_v1")
-        location = geolocator.reverse(f"{lat}, {lon}", timeout=5)
+        if not rua or not cidade:
+            geo_nom = Nominatim(user_agent="sistema_croqui_tecnico_v1")
+            loc_nom = geo_nom.reverse(f"{lat}, {lon}", timeout=4)
+            if loc_nom and hasattr(loc_nom, 'raw') and loc_nom.raw.get('address'):
+                addr = loc_nom.raw['address']
+                if not rua: rua = addr.get('road') or addr.get('street') or ""
+                if not cidade: cidade = addr.get('city') or addr.get('town') or ""
+                if not numero: numero = addr.get('house_number') or ""
+    except:
+        pass
 
-        if location and location.raw.get('address'):
-            addr = location.raw['address']
-            rua = addr.get('road') or addr.get('street') or addr.get('pedestrian') or ""
-            numero = addr.get('house_number') or ""
-            if not rua: rua = addr.get('hamlet') or addr.get('village') or ""
+    # MONTA O RESULTADO FINAL
+    end_parts = []
+    if rua: end_parts.append(rua)
+    if numero:
+        end_parts.append(f", {numero}")
+    elif rua:
+        end_parts.append(", S/N")
 
-            end_parts = []
-            if rua: end_parts.append(rua)
-            if numero: end_parts.append(f", {numero}")
+    if not rua: return None, None
 
-            endereco_final = "".join(end_parts)
-            cidade = addr.get('city') or addr.get('town') or addr.get('municipality') or ""
-            estado = addr.get('state_code') or "SP"
-            localidade_final = f"{cidade} - {estado}" if cidade else ""
+    endereco_final = "".join(end_parts)
+    localidade_final = f"{cidade} - {estado}" if cidade else ""
 
-            return endereco_final, localidade_final
-    except Exception as e:
-        print(f"Erro ao buscar GPS: {e}")
-        return None, None
-    return None, None
+    return endereco_final, localidade_final
 
 
 # ----------------------------
-# FUNÇÃO NOVA: FORMATAR TEXTO
+# FUNÇÃO: FORMATAR TEXTO
 # ----------------------------
 def formatar_texto(texto):
     if not texto: return ""
@@ -608,7 +686,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const tagsBox = document.getElementById('exec-tags');
     const inputVeiculo = document.querySelector('input[name="veiculo"]');
 
-    // Modal Elements
     const modalOverlay = document.getElementById('modal-overlay');
     const modalList = document.getElementById('modal-list');
     const btnValidate = document.getElementById('btn-validate');
@@ -638,7 +715,6 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTags();
     atualizarHidden();
 
-    // Auto-complete
     input.addEventListener('input', () => {
         const v = input.value.toLowerCase();
         list.innerHTML = '';
@@ -668,16 +744,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     });
 
-    // Remover erro ao digitar
     document.querySelectorAll('input, textarea').forEach(el => {
         el.addEventListener('input', function() {
             if(this.value.trim() !== '') this.classList.remove('error');
         });
     });
 
-    // --- LÓGICA DE VALIDAÇÃO COM MODAL ---
-
-    // 1. Clique em "Gerar PDF"
     btnValidate.addEventListener('click', (e) => {
         e.preventDefault();
         let missing = [];
@@ -708,7 +780,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (missing.length > 0) {
-            // Mostra Modal
             modalList.innerHTML = missing.map(item => `<li>${item}</li>`).join('');
             modalOverlay.style.display = 'flex';
         } else {
@@ -716,17 +787,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 2. Botão "Voltar e Preencher"
-    btnModalBack.addEventListener('click', () => {
-        modalOverlay.style.display = 'none';
-        // Fica na tela com os campos vermelhos
-    });
-
-    // 3. Botão "Gerar Assim Mesmo"
-    btnModalProceed.addEventListener('click', () => {
-        modalOverlay.style.display = 'none';
-        form.submit();
-    });
+    btnModalBack.addEventListener('click', () => { modalOverlay.style.display = 'none'; });
+    btnModalProceed.addEventListener('click', () => { modalOverlay.style.display = 'none'; form.submit(); });
 });
 </script>
 <body>
