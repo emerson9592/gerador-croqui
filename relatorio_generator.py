@@ -24,7 +24,7 @@ DB_TECNICOS = {
     "emerson pereira": "0102059848",
     "erickson fernando": "0102053031",
     "joaquim otavio": "0102063826",
-    "julio cesar mendes": "0102050030",
+    "julio cesar": "0102050030",
     "leandro dias": "0102055139",
     "leonardo félix": "0102063528",
     "marcos paulo": "0124064676",
@@ -85,7 +85,8 @@ DB_ALIASES = {
     "alex": "alex feitosa", "caio": "caio rodrigo", "diogo": "diogo primo silva",
     "edmilson": "edmilson dos santos", "edson": "edson rosa", "elias": "elias fonseca",
     "felipe": "felipe nunes", "fernando": "fernando aparecido", "henrique": "henrique de lima",
-    "joao": "joao gabriel", "jonathan": "jonathan dos santos", "jose": "jose gabriel",
+    "joao": "joao gabriel", "joao gabriel": "joao gabriel",
+    "jonathan": "jonathan dos santos", "jose": "jose gabriel",
     "julio silva": "julio cesar silva", "jurandi": "jurandi wesley", "kelvin": "kelvin gomes",
     "lucas": "lucas amorim", "marcio": "marcio barbosa", "marco": "marco de lucca",
     "marco lucca": "marco de lucca", "mauricio": "mauricio oliveira",
@@ -192,14 +193,12 @@ def extract_fields(text):
                                 'veiculo', 'data', 'supervisor']}
     text = text.replace('\r\n', '\n').strip()
 
-    # 1. SIGLAS ES.AT
     match_sigla = re.search(r"\b(?!(?:com|net|org|gov|www|vivo|http)\b)([a-zA-Z]{3})\.([a-zA-Z]{2})\b", text,
                             re.IGNORECASE)
     if match_sigla:
         data['es'] = match_sigla.group(1).upper()
         data['at'] = match_sigla.group(2).upper()
 
-    # 2. HEADER
     match_header = re.search(r"(\d{8,})\s*-\s*TA\s*(\d{8,})", text)
     if match_header:
         data['codigo_obra'] = match_header.group(1)
@@ -210,7 +209,14 @@ def extract_fields(text):
         m_sgm = re.search(r"(?:SGM|Obra)\s*[:\-]?\s*(\d{6,})", text, re.IGNORECASE)
         if m_sgm: data['codigo_obra'] = m_sgm.group(1)
 
-    # 3. CAMPOS GERAIS
+    if not data['ta']:
+        m_ta_loose = re.search(r"\b(35\d{7})\b", text)
+        if m_ta_loose: data['ta'] = m_ta_loose.group(1)
+
+    if not data['codigo_obra']:
+        m_sgm_loose = re.search(r"\b(20\d{8})\b", text)
+        if m_sgm_loose: data['codigo_obra'] = m_sgm_loose.group(1)
+
     patterns = [
         (r"(?:causa|motivo)\s*[:;\-]?\s*(.+)", 'causa'),
         (r"(?:localidade|cidade)\s*[:;\-]?\s*(.+)", 'localidade'),
@@ -222,7 +228,6 @@ def extract_fields(text):
             m = re.search(r"(?m)^.*?" + pattern, text, re.IGNORECASE)
             if m: data[key] = m.group(1).strip().rstrip('.,;')
 
-    # 4. ENDEREÇO
     raw_address = ""
     m_end = re.search(r"(?m)^.*?(?:end[eê]re[cç]o|localiza[cç][aã]o)\s*[:;\-]?\s*(.+)", text, re.IGNORECASE)
     is_gps_text = False
@@ -248,7 +253,6 @@ def extract_fields(text):
         m_short = re.match(r"^(.*?,\s*\d+)", raw_address)
         data['endereco'] = m_short.group(1) if m_short else raw_address
 
-    # GPS Check
     match_gps = re.search(r"(-2\d\.\d+)[^\d\-]+(-4\d\.\d+)", text)
     if match_gps:
         lat, lon = match_gps.group(1), match_gps.group(2)
@@ -258,7 +262,6 @@ def extract_fields(text):
             if not data['endereco'] or len(data['endereco']) < 5 or is_gps_text: data['endereco'] = end_gps
             if not data['localidade'] and loc_gps: data['localidade'] = loc_gps
 
-    # 5. TRONCO
     m_tr = re.search(r"TR\s*#?\s*(\d+)", text, re.IGNORECASE)
     if m_tr:
         data['tronco'] = m_tr.group(1)
@@ -268,7 +271,6 @@ def extract_fields(text):
 
     data['supervisor'] = "Wellington"
 
-    # 6. TÉCNICOS
     exec_list = []
     text_lower = text.lower()
     nomes_encontrados_set = set()
@@ -286,13 +288,11 @@ def extract_fields(text):
 
     data['executantes_parsed'] = exec_list
 
-    # --- AUTO-PREENCHIMENTO DE VEÍCULO PELO TÉCNICO ---
     if not data['veiculo'] and exec_list:
         primeiro_tecnico = exec_list[0]['name']
         if primeiro_tecnico in DB_VEICULOS:
             data['veiculo'] = DB_VEICULOS[primeiro_tecnico]
 
-    # 7. TRATATIVAS
     raw_materials = ""
     match_genesis = re.search(r"Ação de Recuperação:[\s\S]*?(?=\nMaterial|\nData|\Z)", text, re.IGNORECASE)
     match_manual = re.search(r"O QUE FOI FEITO.*:([\s\S]*?)(?=\n\d+\)|Material|\Z)", text, re.IGNORECASE)
@@ -333,6 +333,13 @@ def detect_launch(material_lines):
         m = re.search(p, joined)
         if m: return int(m.group(1))
     return None
+
+
+def detect_double_point(material_lines):
+    joined = " ".join(material_lines).lower()
+    if re.search(r"\b(?:02|2)\s*(?:reabertura|abertura|ceo|caixa|ctop|emenda)", joined):
+        return True
+    return False
 
 
 def generate_pps(total_length, vt_each=15):
@@ -495,16 +502,24 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         step = total_width / len(pp_list)
         cur_x = left_x
         c.circle(cur_x, draw_y, 4, fill=1)
-        c.drawString(cur_x - 10, draw_y + 15, "VT 15m")
+
+        has_cable = sum(pp_list) > 0
+        if has_cable:
+            c.drawString(cur_x - 10, draw_y + 15, "VT 15m")
+
         c.drawString(cur_x - 10, draw_y - 20, "XC Inicial")
         for i, dist in enumerate(pp_list):
             nxt_x = cur_x + step
             mid = (cur_x + nxt_x) / 2
-            if dist > 0: c.drawString(mid - 15, draw_y + 5, f"PP {dist}m")
+
+            if dist > 0 and has_cable:
+                c.drawString(mid - 15, draw_y + 5, f"PP {dist}m")
+
             c.circle(nxt_x, draw_y, 4, fill=1)
             if i == len(pp_list) - 1:
                 c.drawString(nxt_x - 10, draw_y - 20, "XC Final")
-                c.drawString(nxt_x - 10, draw_y + 15, "VT 15m")
+                if has_cable:
+                    c.drawString(nxt_x - 10, draw_y + 15, "VT 15m")
             else:
                 c.drawString(nxt_x - 8, draw_y - 20, "XC")
             cur_x = nxt_x
@@ -575,6 +590,7 @@ FORM_HTML = """
         #exec-list { max-height: 150px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; margin-bottom: 10px; }
         #exec-list div:hover { background: #f8f9fa; color: #007bff; }
         .back-btn { background: #007bff; margin-right: 10px; text-decoration: none; display: inline-block; color: white; padding: 12px 25px; border-radius: 5px; text-align: center; }
+        .back-btn:hover { background: #0056b3; }
     </style>
 </head>
 <script>
@@ -819,8 +835,22 @@ def generate():
     for k in ['causa', 'endereco', 'localidade', 'veiculo', 'supervisor']:
         parsed[k] = formatar_texto(parsed[k])
     material_lines = [formatar_texto(l.strip()) for l in itens_raw.splitlines() if l.strip()]
+
     total_len = detect_launch(material_lines)
-    pp_list = generate_pps(total_len) if total_len else []
+    is_double_point = False
+
+    if total_len is None:
+        if detect_double_point(material_lines):
+            is_double_point = True
+            total_len = 0
+
+    pp_list = []
+    if total_len is not None:
+        if total_len > 0:
+            pp_list = generate_pps(total_len)
+        elif is_double_point:
+            pp_list = [0, 0, 0, 0]  # 4 itens para gerar 3 vãos intermediários
+
     codigo = parsed.get('ta') or f"doc_{random.randint(1000, 9999)}"
     codigo = re.sub(r'[^\w\-]', '', codigo)
     overlay_path = OUTPUT_DIR / f"{codigo}_overlay.pdf"
