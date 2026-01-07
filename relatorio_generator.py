@@ -13,7 +13,7 @@ app.secret_key = "chave_secreta_segura"
 
 # --- CONFIGURAÇÃO DA CHAVE DO GOOGLE MAPS ---
 # Deixe vazio "" para usar o modo Gratuito (ArcGIS)
-GOOGLE_API_KEY = ""
+GOOGLE_API_KEY = "AIzaSyCZXAgi1EQntbx7U3SyZI3I4xWj25E2sq0"
 
 TEMPLATE_PDF = "CROQUI.pdf"
 OUTPUT_DIR = Path("outputs")
@@ -27,7 +27,7 @@ DB_TECNICOS = {
     "emerson pereira": "0102059848",
     "erickson fernando": "0102053031",
     "joaquim otavio": "0102063826",
-    "julio mendes": "0102050030",
+    "julio cesar": "0102050030",
     "leandro dias": "0102055139",
     "leonardo félix": "0102063528",
     "marcos paulo": "0124064676",
