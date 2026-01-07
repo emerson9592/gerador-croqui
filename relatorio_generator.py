@@ -4,22 +4,21 @@ from pdfrw import PdfReader, PdfWriter, PageMerge
 from pathlib import Path
 import re, random, os, json
 
-# --- BIBLIOTECAS DE MAPA ---
+# BIBLIOTECAS DE MAPA
 from geopy.geocoders import Nominatim, ArcGIS, GoogleV3
 from geopy.exc import GeocoderTimedOut
 
 app = Flask(__name__)
 app.secret_key = "chave_secreta_segura"
 
-# --- CONFIGURAÇÃO DA CHAVE DO GOOGLE MAPS ---
-# Deixe vazio "" para usar o modo Gratuito (ArcGIS)
+# API KEY GOOGLE MAPS
 GOOGLE_API_KEY = "AIzaSyCZXAgi1EQntbx7U3SyZI3I4xWj25E2sq0"
 
 TEMPLATE_PDF = "CROQUI.pdf"
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# --- BANCO DE DADOS DE TÉCNICOS ---
+# BANCO DE DADOS DE TÉCNICOS
 DB_TECNICOS = {
     "agnaldo venancio": "0102060458",
     "alessandro ferreira": "0102047065",
@@ -27,7 +26,7 @@ DB_TECNICOS = {
     "emerson pereira": "0102059848",
     "erickson fernando": "0102053031",
     "joaquim otavio": "0102063826",
-    "julio cesar": "0102050030",
+    "julio Mendes": "0102050030",
     "leandro dias": "0102055139",
     "leonardo félix": "0102063528",
     "marcos paulo": "0124064676",
@@ -65,7 +64,7 @@ DB_TECNICOS = {
     "edenilson santos": "sem RE"
 }
 
-# --- APELIDOS ---
+# BUSCADOR
 DB_ALIASES = {
     "edenilson": "edenilson santos", "edenilson de souza": "edenilson santos",
     "agnaldo": "agnaldo venancio", "aguinaldo": "agnaldo venancio", "agnaldo brisola": "agnaldo venancio",
@@ -96,7 +95,7 @@ DB_ALIASES = {
     "ruan vinicius": "ruan vinicius", "wendel": "wendel ribeiro",
 }
 
-# --- VEÍCULOS ---
+# VINCULO VEÍCULOS
 DB_VEICULOS = {
     "leonardo félix": "RVW5G87",
     "leandro dias": "RVI3G26",
