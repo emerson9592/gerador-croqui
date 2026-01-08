@@ -572,7 +572,7 @@ PASTE_HTML = """
 <body>
 <div class="container">
     <h2>Gerador de Croquis</h2>
-    <p class="info">Cole abaixo o texto do WhatsApp ou do Sistema <strong>GENESIS</strong>.</p>
+    <p class="info">Cole abaixo o encerramento do <strong>GENESIS</strong>.</p>
     <form method="post" action="/preencher">
         <textarea name="raw_text" placeholder="Cole aqui seu encerramento..."></textarea>
         <br>
