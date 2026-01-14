@@ -18,9 +18,9 @@ TEMPLATE_PDF = "CROQUI.pdf"
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# --- BANCO DE DADOS DE TÉCNICOS (NOVA ESTRUTURA) ---
+## --- BANCO DE DADOS DE TÉCNICOS (ATUALIZADO COM AREA 12) ---
 DB_TECNICOS = {
-    # AREA 15
+    # --- AREA 15 ---
     "agnaldo venancio brisola": {"re": "0102060458", "area": "15"},
     "alessandro ferreira de morais": {"re": "0102047065", "area": "15"},
     "cleiton irani rodrigues benfica": {"re": "0102059450", "area": "15"},
@@ -40,7 +40,7 @@ DB_TECNICOS = {
     "edenilson santos": {"re": "0124065541", "area": "15"},
     "lucas santos de souza": {"re": "0124065541", "area": "15"},
 
-    # AREA 11
+    # --- AREA 11 ---
     "aguilson lucas nunes moreira": {"re": "0102062737", "area": "11"},
     "alan almeida jesus": {"re": "0102062248", "area": "11"},
     "alan bruno de oliveira": {"re": "0118065433", "area": "11"},
@@ -66,14 +66,48 @@ DB_TECNICOS = {
     "mauricio oliveira fernandes": {"re": "0118064616", "area": "11"},
     "ruan vinicius fonseca fonteles": {"re": "0102064131", "area": "11"},
     "wendel ribeiro bueno": {"re": "0102064177", "area": "11"},
+
+    # --- AREA 12 (NOVA) ---
+    "clovis mateus de aguiar": {"re": "0102059436", "area": "12"},
+    "ederval jose fernandes": {"re": "0102055514", "area": "12"},
+    "francisco guilherme dos santos": {"re": "0102052569", "area": "12"},
+    "gabriel de souza sepulveda": {"re": "0102056361", "area": "12"},
+    "luciano de andrade brison": {"re": "0102052551", "area": "12"},
+    "rondineli anderson ribeiro": {"re": "0118065535", "area": "12"},
+    "adair victor moreira ribeiro": {"re": "0118064698", "area": "12"},
+    "andre luiz de araujo": {"re": "0102047050", "area": "12"},
+    "charles campos de oliveira": {"re": "0102060469", "area": "12"},
+    "daniel de oliveira leandro": {"re": "0102047088", "area": "12"},
+    "diego wenceslau": {"re": "0102063949", "area": "12"},
+    "felipe domingos juliani": {"re": "0102047043", "area": "12"},
+    "gilson bandeira campos junior": {"re": "0102060965", "area": "12"},
+    "leonardo nunes ribeiro da silva": {"re": "0102060345", "area": "12"},
+    "matheus das neves campos": {"re": "0102059444", "area": "12"},
+    "rodolfo de oliveira pereira": {"re": "0102060964", "area": "12"},
+    "rodrigo tavares": {"re": "0102056375", "area": "12"},
+    "acir francisco clemente": {"re": "0102053070", "area": "12"},
+    "alexandre de souza praxedes": {"re": "0102053587", "area": "12"},
+    "bruno freita dos santos": {"re": "0102064488", "area": "12"},
+    "claudemir francisco da silva": {"re": "0102061210", "area": "12"},
+    "heliomar bessa de oliveira": {"re": "0102052589", "area": "12"},
+    "jackson tadeu carlos": {"re": "0102046989", "area": "12"},
+    "jefferson christian castilho": {"re": "0102064523", "area": "12"},
+    "joao marcos augusto flausino": {"re": "0102064491", "area": "12"},
+    "kelvin aparecido da silva": {"re": "0102064109", "area": "12"},
+    "lemuel de paula rodrigues": {"re": "0102064507", "area": "12"},
+    "max william de castro da silva": {"re": "0102064490", "area": "12"},
+    "renato dos santos": {"re": "0102047067", "area": "12"},
+    "samuel antonio de siqueira": {"re": "0102047061", "area": "12"},
+    "silas de araujo rocha": {"re": "0102047063", "area": "12"}
 }
 
-# --- APELIDOS (Mapeia para as chaves acima) ---
+#  (Aliases)
 DB_ALIASES = {
+    # --- Extras ---
     "edenilson": "edenilson santos",
     "edenilson de souza": "edenilson santos",
 
-    # Area 15 Short
+    #  Area 15
     "agnaldo": "agnaldo venancio brisola",
     "agnaldo venancio": "agnaldo venancio brisola",
     "alessandro": "alessandro ferreira de morais",
@@ -95,7 +129,7 @@ DB_ALIASES = {
     "talissa": "talissa aparecida barbosa de andrade",
     "welington": "welington josé domimgues batista",
 
-    # Area 11 Short
+    #  Area 11
     "aguilson": "aguilson lucas nunes moreira",
     "alan": "alan almeida jesus",
     "alan bruno": "alan bruno de oliveira",
@@ -121,7 +155,40 @@ DB_ALIASES = {
     "marco": "marco de lucca tavares guimaraes",
     "mauricio": "mauricio oliveira fernandes",
     "ruan vinicius": "ruan vinicius fonseca fonteles",
-    "wendel": "wendel ribeiro bueno"
+    "wendel": "wendel ribeiro bueno",
+
+    # Area 12
+    "clovis": "clovis mateus de aguiar",
+    "ederval": "ederval jose fernandes",
+    "francisco": "francisco guilherme dos santos",
+    "gabriel": "gabriel de souza sepulveda",
+    "luciano": "luciano de andrade brison",
+    "rondineli": "rondineli anderson ribeiro",
+    "adair": "adair victor moreira ribeiro",
+    "andre": "andre luiz de araujo",
+    "charles": "charles campos de oliveira",
+    "daniel": "daniel de oliveira leandro",
+    "diego": "diego wenceslau",
+    "felipe juliani": "felipe domingos juliani",
+    "gilson": "gilson bandeira campos junior",
+    "leonardo nunes": "leonardo nunes ribeiro da silva",
+    "matheus": "matheus das neves campos",
+    "rodolfo": "rodolfo de oliveira pereira",
+    "rodrigo": "rodrigo tavares",
+    "acir": "acir francisco clemente",
+    "alexandre": "alexandre de souza praxedes",
+    "bruno": "bruno freita dos santos",
+    "claudemir": "claudemir francisco da silva",
+    "heliomar": "heliomar bessa de oliveira",
+    "jackson": "jackson tadeu carlos",
+    "jefferson": "jefferson christian castilho",
+    "joao marcos": "joao marcos augusto flausino",
+    "kelvin aparecido": "kelvin aparecido da silva",
+    "lemuel": "lemuel de paula rodrigues",
+    "max": "max william de castro da silva",
+    "renato": "renato dos santos",
+    "samuel": "samuel antonio de siqueira",
+    "silas": "silas de araujo rocha"
 }
 
 # --- VEÍCULOS ---
