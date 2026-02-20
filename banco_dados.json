@@ -1,0 +1,316 @@
+{
+    "tecnicos": {
+        "agnaldo venancio brisola": {
+            "re": "0102060458",
+            "area": "15"
+        },
+        "alessandro ferreira de morais": {
+            "re": "0102047065",
+            "area": "15"
+        },
+        "cleiton irani rodrigues benfica": {
+            "re": "0102059450",
+            "area": "15"
+        },
+        "emerson pereira da silva": {
+            "re": "0102059848",
+            "area": "15"
+        },
+        "erickson fernando leme": {
+            "re": "0102053031",
+            "area": "15"
+        },
+        "joaquim otavio machado vaz": {
+            "re": "0102063826",
+            "area": "15"
+        },
+        "julio cesar mendes de moraes": {
+            "re": "0102050030",
+            "area": "15"
+        },
+        "leandro dias da costa junior": {
+            "re": "0102055139",
+            "area": "15"
+        },
+        "leonardo félix cruz junior": {
+            "re": "0102063528",
+            "area": "15"
+        },
+        "marcos paulo dos santos": {
+            "re": "0124064676",
+            "area": "15"
+        },
+        "murilo de oliveira fructuosoda graça": {
+            "re": "0102063941",
+            "area": "15"
+        },
+        "pablo daniel amaro antonio": {
+            "re": "0102059303",
+            "area": "15"
+        },
+        "roger ribeiro gomes": {
+            "re": "0102054899",
+            "area": "15"
+        },
+        "ruan augusto dos santos caetano": {
+            "re": "0124064626",
+            "area": "15"
+        },
+        "talissa aparecida barbosa de andrade": {
+            "re": "0102044461",
+            "area": "15"
+        },
+        "welington josé domimgues batista": {
+            "re": "0102047056",
+            "area": "15"
+        },
+        "edenilson santos": {
+            "re": "0124065541",
+            "area": "15"
+        },
+        "samuel vinícius de castro gomes": {
+            "re": "0124065786",
+            "area": "15"
+        },
+        "lucas gabriel de almeida ramos": {
+            "re": "0102063402",
+            "area": "15"
+        },
+        "aguilson lucas nunes moreira": {
+            "re": "0102062737",
+            "area": "11"
+        },
+        "alan almeida jesus": {
+            "re": "0102062248",
+            "area": "11"
+        },
+        "alan bruno de oliveira": {
+            "re": "0118065433",
+            "area": "11"
+        },
+        "alex feitosa monteiro": {
+            "re": "0102064113",
+            "area": "11"
+        },
+        "caio rodrigo de souza goncalves": {
+            "re": "0118064757",
+            "area": "11"
+        },
+        "diogo primo silva": {
+            "re": "0102056374",
+            "area": "11"
+        },
+        "edmilson dos santos pereira": {
+            "re": "0102060449",
+            "area": "11"
+        },
+        "edson rosa vieira": {
+            "re": "0118064670",
+            "area": "11"
+        },
+        "elias fonseca maciel de melo": {
+            "re": "0118064645",
+            "area": "11"
+        },
+        "felipe fontoura silva": {
+            "re": "102062731",
+            "area": "11"
+        },
+        "felipe nunes barbosa da silva": {
+            "re": "0102063906",
+            "area": "11"
+        },
+        "fernando aparecido camargo ferreira": {
+            "re": "0102060636",
+            "area": "11"
+        },
+        "henrique de lima andrade": {
+            "re": "102063911",
+            "area": "11"
+        },
+        "joao gabriel furtado feitosa": {
+            "re": "0118065540",
+            "area": "11"
+        },
+        "jonathan dos santos fernandes rodrigues": {
+            "re": "0102060445",
+            "area": "11"
+        },
+        "jose gabriel da silva neto": {
+            "re": "0102060418",
+            "area": "11"
+        },
+        "julio cesar silva de oliveira": {
+            "re": "102060638",
+            "area": "11"
+        },
+        "jurandi wesley batista da silva": {
+            "re": "0118064679",
+            "area": "11"
+        },
+        "kelvin gomes da silva": {
+            "re": "0102062255",
+            "area": "11"
+        },
+        "lucas amorim gomes": {
+            "re": "0118064689",
+            "area": "11"
+        },
+        "marcio barbosa lima": {
+            "re": "0102062727",
+            "area": "11"
+        },
+        "marco de lucca tavares guimaraes": {
+            "re": "0102062770",
+            "area": "11"
+        },
+        "mauricio oliveira fernandes": {
+            "re": "0118064616",
+            "area": "11"
+        },
+        "ruan vinicius fonseca fonteles": {
+            "re": "0102064131",
+            "area": "11"
+        },
+        "wendel ribeiro bueno": {
+            "re": "0102064177",
+            "area": "11"
+        },
+        "clovis mateus de aguiar": {
+            "re": "0102059436",
+            "area": "12"
+        },
+        "ederval jose fernandes": {
+            "re": "0102055514",
+            "area": "12"
+        },
+        "francisco guilherme dos santos": {
+            "re": "0102052569",
+            "area": "12"
+        },
+        "gabriel de souza sepulveda": {
+            "re": "0102056361",
+            "area": "12"
+        },
+        "luciano de andrade brison": {
+            "re": "0102052551",
+            "area": "12"
+        },
+        "rondineli anderson ribeiro": {
+            "re": "0118065535",
+            "area": "12"
+        },
+        "adair victor moreira ribeiro": {
+            "re": "0118064698",
+            "area": "12"
+        },
+        "andre luiz de araujo": {
+            "re": "0102047050",
+            "area": "12"
+        },
+        "charles campos de oliveira": {
+            "re": "0102060469",
+            "area": "12"
+        },
+        "daniel de oliveira leandro": {
+            "re": "0102047088",
+            "area": "12"
+        },
+        "diego wenceslau": {
+            "re": "0102063949",
+            "area": "12"
+        },
+        "felipe domingos juliani": {
+            "re": "0102047043",
+            "area": "12"
+        },
+        "gilson bandeira campos junior": {
+            "re": "0102060965",
+            "area": "12"
+        },
+        "leonardo nunes ribeiro da silva": {
+            "re": "0102060345",
+            "area": "12"
+        },
+        "matheus das neves campos": {
+            "re": "0102059444",
+            "area": "12"
+        },
+        "rodolfo de oliveira pereira": {
+            "re": "0102060964",
+            "area": "12"
+        },
+        "rodrigo tavares": {
+            "re": "0102056375",
+            "area": "12"
+        },
+        "acir francisco clemente": {
+            "re": "0102053070",
+            "area": "12"
+        },
+        "alexandre de souza praxedes": {
+            "re": "0102053587",
+            "area": "12"
+        },
+        "bruno freita dos santos": {
+            "re": "0102064488",
+            "area": "12"
+        },
+        "claudemir francisco da silva": {
+            "re": "0102061210",
+            "area": "12"
+        },
+        "heliomar bessa de oliveira": {
+            "re": "0102052589",
+            "area": "12"
+        },
+        "jackson tadeu carlos": {
+            "re": "0102046989",
+            "area": "12"
+        },
+        "jefferson christian castilho": {
+            "re": "0102064523",
+            "area": "12"
+        },
+        "joao marcos augusto flausino": {
+            "re": "0102064491",
+            "area": "12"
+        },
+        "kelvin aparecido da silva": {
+            "re": "0102064109",
+            "area": "12"
+        },
+        "lemuel de paula rodrigues": {
+            "re": "0102064507",
+            "area": "12"
+        },
+        "max william de castro da silva": {
+            "re": "0102064490",
+            "area": "12"
+        },
+        "renato dos santos": {
+            "re": "0102047067",
+            "area": "12"
+        },
+        "samuel antonio de siqueira": {
+            "re": "0102047061",
+            "area": "12"
+        },
+        "silas de araujo rocha": {
+            "re": "0102047063",
+            "area": "12"
+        }
+    },
+    "veiculos": {
+        "leonardo félix cruz junior": "RVW5G87",
+        "leandro dias da costa junior": "RVI3G26",
+        "murilo de oliveira fructuosoda graça": "RTR3F69",
+        "agnaldo venancio brisola": "RTR3F69",
+        "emerson pereira da silva": "RVQ0G58",
+        "pablo daniel amaro antonio": "RTI7C83",
+        "alessandro ferreira de morais": "RVJ6D74",
+        "roger ribeiro gomes": "RVI3G26",
+        "julio cesar mendes de moraes": "RVJ6D77",
+        "cleiton irani rodrigues benfica": "RUX6C72"
+    }
+}
