@@ -549,7 +549,7 @@ ADMIN_HTML = """
 body{font-family:'Segoe UI',sans-serif; background:#f0f2f5; padding:20px; margin:0;}
 .container{max-width:1000px; margin:auto; background:#fff; padding:25px; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,0.1);}
 h2 {color: #333; margin-top:0;}
-table{width:100%; border-collapse:collapse; margin-top:25px;}
+table{width:100%; border-collapse:collapse; margin-top:10px;}
 th, td{border:1px solid #eee; padding:12px; text-align:left; font-size:14px; vertical-align: middle;}
 th{background:#f8f9fa; color:#555; font-weight:600;}
 input.edit-input{padding:8px; border:1px solid #ccc; border-radius:4px; width:100%; box-sizing:border-box;}
@@ -561,7 +561,18 @@ input.edit-input{padding:8px; border:1px solid #ccc; border-radius:4px; width:10
 .btn-del{background:#dc3545; color:#fff;}
 .form-grid{display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap:15px;}
 .actions-cell {white-space: nowrap; width: 150px;}
-@media (max-width: 768px) { .form-grid{grid-template-columns: 1fr;} table {display:block; overflow-x:auto;} }
+
+/* Estilos da nova barra de pesquisa */
+.search-container { display: flex; justify-content: space-between; align-items: center; margin-top: 30px; margin-bottom: 10px; }
+.search-input { padding: 10px 15px; border: 1px solid #ccc; border-radius: 20px; width: 100%; max-width: 300px; outline: none; transition: 0.3s; font-size: 14px;}
+.search-input:focus { border-color: #007bff; box-shadow: 0 0 5px rgba(0,123,255,0.3); }
+
+@media (max-width: 768px) { 
+    .form-grid{grid-template-columns: 1fr;} 
+    table {display:block; overflow-x:auto;} 
+    .search-container { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .search-input { max-width: 100%; }
+}
 </style>
 <script>
 function toggleEdit(rowId) {
@@ -591,6 +602,27 @@ function toggleEdit(rowId) {
         btnDel.style.display = 'none';
     }
 }
+
+// LÓGICA DE BUSCA NO PAINEL
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('search-admin');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const filter = this.value.toLowerCase();
+            const rows = document.querySelectorAll('tbody tr');
+
+            rows.forEach(row => {
+                // Captura todo o texto da linha (inclui nome, RE, Placa e Área)
+                const rowText = row.innerText.toLowerCase();
+                if (rowText.includes(filter)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    }
+});
 </script>
 </head><body>
 <div class="container">
@@ -611,7 +643,11 @@ function toggleEdit(rowId) {
         <button type="submit" class="btn btn-add">+ Salvar Técnico</button>
     </form>
 
-    <h3 style="color:#444; margin-top:30px; margin-bottom:0;">Técnicos Cadastrados</h3>
+    <div class="search-container">
+        <h3 style="color:#444; margin:0;">Técnicos Cadastrados</h3>
+        <input type="text" id="search-admin" class="search-input" placeholder="🔍 Buscar por nome, RE ou placa...">
+    </div>
+
     <table>
         <thead><tr><th>Nome</th><th>RE</th><th>Área</th><th>Veículo</th><th style="text-align:center;">Ações</th></tr></thead>
         <tbody>
