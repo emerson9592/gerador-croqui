@@ -4,6 +4,7 @@ from pdfrw import PdfReader, PdfWriter, PageMerge
 from pathlib import Path
 import re, random, os, json
 import asyncio
+import textwrap
 from telethon import TelegramClient
 
 # --- BIBLIOTECAS FIREBASE ---
@@ -13,7 +14,6 @@ from firebase_admin import db as firebase_db
 
 # --- BIBLIOTECAS DE MAPA ---
 from geopy.geocoders import Nominatim, ArcGIS, GoogleV3
-from geopy.exc import GeocoderTimedOut
 
 app = Flask(__name__)
 app.secret_key = "1307"
@@ -30,10 +30,8 @@ ADMIN_PASSWORD = "vivo"
 # ==========================================
 # CONFIGURAÇÕES DO FIREBASE (NUVEM)
 # ==========================================
-# Cole aqui o link do seu banco de dados (NÃO se esqueça de manter as aspas simples e o link terminar com .com/)
 FIREBASE_DB_URL = 'https://geradorcroqui-default-rtdb.firebaseio.com/'
 
-# Inicializa a conexão com o Firebase de forma segura
 if not firebase_admin._apps:
     try:
         cred = credentials.Certificate("firebase-key.json")
@@ -52,70 +50,25 @@ TELEGRAM_API_HASH = 'd09dcafbf4b9ba5427d80e5b4cad5837'
 TELEGRAM_GROUP_IDS = [-4209680542, -4112543320]
 TELEGRAM_SESSION = 'sessao_usuario'
 
-# ==========================================
-# DADOS PADRÃO (Para iniciar o banco de dados)
-# ==========================================
-DB_TECNICOS_DEFAULT = {
-    "agnaldo venancio brisola": {"re": "0102060458", "area": "15"},
-    "alessandro ferreira de morais": {"re": "0102047065", "area": "15"},
-    "cleiton irani rodrigues benfica": {"re": "0102059450", "area": "15"},
-    "emerson pereira da silva": {"re": "0102059848", "area": "15"},
-    "erickson fernando leme": {"re": "0102053031", "area": "15"},
-    "joaquim otavio machado vaz": {"re": "0102063826", "area": "15"},
-    "julio cesar mendes de moraes": {"re": "0102050030", "area": "15"},
-    "leandro dias da costa junior": {"re": "0102055139", "area": "15"},
-    "leonardo félix cruz junior": {"re": "0102063528", "area": "15"},
-    "murilo de oliveira fructuosoda graça": {"re": "0102063941", "area": "15"},
-    "pablo daniel amaro antonio": {"re": "0102059303", "area": "15"},
-    "roger ribeiro gomes": {"re": "0102054899", "area": "15"},
-    "ruan augusto dos santos caetano": {"re": "0124064626", "area": "15"},
-    "talissa aparecida barbosa de andrade": {"re": "0102044461", "area": "15"},
-    "welington josé domimgues batista": {"re": "0102047056", "area": "15"},
-    "edenilson santos": {"re": "0124065541", "area": "15"},
-    "lucas gabriel de almeida ramos": {"re": "0102063402", "area": "15"},
-    "clovis mateus de aguiar": {"re": "0102059436", "area": "12"},
-    "ederval jose fernandes": {"re": "0102055514", "area": "12"}
-}
-
-DB_VEICULOS_DEFAULT = {
-    "leonardo félix cruz junior": "RVW5G87",
-    "leandro dias da costa junior": "RVI3G26",
-    "murilo de oliveira fructuosoda graça": "RTR3F69",
-    "agnaldo venancio brisola": "RTR3F69",
-    "emerson pereira da silva": "RVQ0G58",
-    "pablo daniel amaro antonio": "RTI7C83",
-    "alessandro ferreira de morais": "RVJ6D74",
-    "roger ribeiro gomes": "RVI3G26",
-    "julio cesar mendes de moraes": "RVJ6D77",
-    "cleiton irani rodrigues benfica": "RUX6C72"
-}
-
+# --- BANCO DE DADOS LOCAL (BACKUP/ALIASES) ---
 DB_ALIASES = {
     "edenilson": "edenilson santos", "edenilson de souza": "edenilson santos",
     "cleber": "cleiton irani rodrigues benfica"
 }
 
 
-# --- FUNÇÕES DE COMUNICAÇÃO COM A NUVEM (FIREBASE) ---
+# --- FUNÇÕES DE COMUNICAÇÃO FIREBASE ---
 def load_db():
     try:
         ref = firebase_db.reference('/')
         data = ref.get()
-
-        # Se for a primeira vez e o banco estiver vazio na nuvem
-        if not data:
-            db_inicial = {"tecnicos": DB_TECNICOS_DEFAULT, "veiculos": DB_VEICULOS_DEFAULT}
-            save_db(db_inicial)
-            return db_inicial
-
-        # Garante que as categorias existem caso tenham sido apagadas
+        if not data: return {"tecnicos": {}, "veiculos": {}}
         if 'tecnicos' not in data: data['tecnicos'] = {}
         if 'veiculos' not in data: data['veiculos'] = {}
-
         return data
     except Exception as e:
-        print(f"Erro ao ler Firebase (A usar Backup em memória): {e}")
-        return {"tecnicos": DB_TECNICOS_DEFAULT, "veiculos": DB_VEICULOS_DEFAULT}
+        print(f"Erro Firebase: {e}")
+        return {"tecnicos": {}, "veiculos": {}}
 
 
 def save_db(data):
@@ -123,7 +76,7 @@ def save_db(data):
         ref = firebase_db.reference('/')
         ref.set(data)
     except Exception as e:
-        print(f"Erro ao guardar no Firebase: {e}")
+        print(f"Erro Save Firebase: {e}")
 
 
 # --- CONFIGURAÇÕES DE PDF ---
@@ -138,11 +91,11 @@ EXEC_CONFIG = {'name_x': 0.47, 're_x': 0.65, 'start_y': 0.212, 'step_y': 0.028, 
 FILTRO_LANCAMENTO = ["metr", "lancado", "lançado", "lancamento", "lançamento"]
 
 
-# --- FUNÇÃO TELEGRAM (ASSINCRONA) ---
+# --- FUNÇÃO TELEGRAM ---
 async def search_telegram_message(ta_number):
     try:
         async with TelegramClient(TELEGRAM_SESSION, TELEGRAM_API_ID, TELEGRAM_API_HASH) as client:
-            await client.get_dialogs()  # Refresh
+            await client.get_dialogs()
             for group_id in TELEGRAM_GROUP_IDS:
                 try:
                     entity = await client.get_entity(group_id)
@@ -152,13 +105,10 @@ async def search_telegram_message(ta_number):
                     continue
     except Exception as e:
         print(f"Erro Telegram: {e}")
-        return None
     return None
 
 
-# ----------------------------
-# FUNÇÕES DE BUSCA E FORMATAÇÃO
-# ----------------------------
+# --- FUNÇÕES DE BUSCA E FORMATAÇÃO ---
 def buscar_endereco_gps(lat, lon):
     rua, numero, cidade, estado = "", "", "", "SP"
     if GOOGLE_API_KEY:
@@ -175,10 +125,10 @@ def buscar_endereco_gps(lat, lon):
                         if 'administrative_area_level_2' in comp['types']: cidade = comp['long_name']
                         if 'administrative_area_level_1' in comp['types']: estado = comp['short_name']
                 if rua: return (f"{rua}, {numero}" if numero else f"{rua}, S/N"), f"{cidade} - {estado}"
-        except Exception:
+        except:
             pass
     try:
-        geo_arc = ArcGIS(user_agent="sistema_croqui_tecnico_v1")
+        geo_arc = ArcGIS(user_agent="sistema_croqui_v1")
         loc_arc = geo_arc.reverse(f"{lat}, {lon}", timeout=5)
         if loc_arc and loc_arc.raw.get('address'):
             full_text = loc_arc.raw['address']
@@ -190,17 +140,6 @@ def buscar_endereco_gps(lat, lon):
             if not cidade and len(parts) >= 3: cidade = parts[-3].strip()
     except:
         pass
-    if not rua:
-        try:
-            geo_nom = Nominatim(user_agent="sistema_croqui_tecnico_v1")
-            loc_nom = geo_nom.reverse(f"{lat}, {lon}", timeout=4)
-            if loc_nom and hasattr(loc_nom, 'raw'):
-                addr = loc_nom.raw.get('address', {})
-                rua = addr.get('road', '') or addr.get('street', '')
-                cidade = addr.get('city', '') or addr.get('town', '')
-                numero = addr.get('house_number', '')
-        except:
-            pass
     end_parts = []
     if rua: end_parts.append(rua)
     if numero:
@@ -216,7 +155,7 @@ def formatar_texto(texto):
     texto = str(texto).strip().capitalize()
     siglas = ["SP", "MG", "RJ", "ES", "SC", "PR", "RS", "MS", "MT", "GO", "DF", "TO", "BA", "SE", "AL", "PE", "PB",
               "RN", "CE", "PI", "MA", "PA", "AP", "AM", "RR", "RO", "AC", "TA", "SGM", "CEO", "CTOP", "OTDR", "VT",
-              "PP", "XC"]
+              "PP", "XC", "CS"]
     for sigla in siglas:
         pattern = re.compile(r'\b' + re.escape(sigla) + r'\b', re.IGNORECASE)
         texto = pattern.sub(sigla, texto)
@@ -228,18 +167,12 @@ def formatar_texto(texto):
 def pct_to_pt(xpct, ypct, width_pt, height_pt): return xpct * width_pt, ypct * height_pt
 
 
-def clean_materials(raw_text):
-    blacklist = ["deslocamento", "km", "sgm", "obra", "ta", "ticket", "técnico", "tecnico", "equipe", "viatura",
-                 "carro", "previsão", "conclusão", "lat", "long", "localização", "hora"]
-    items = re.split(r'[,\n]', raw_text)
-    cleaned_items = []
-    for item in items:
-        item = item.strip()
-        if not item: continue
-        if any(bad in item.lower() for bad in blacklist): continue
-        if re.search(r'\d', item) or len(item) > 3:
-            cleaned_items.append(item.capitalize())
-    return cleaned_items
+def organizar_tratativas(texto_bruto):
+    texto = re.sub(r'\b(?:feito|realizado)\b', ' ', texto_bruto, flags=re.IGNORECASE)
+    texto = re.sub(r'(?=\b(?:lan[cç]ado|lan[cç]amento)\b)', '\n', texto, flags=re.IGNORECASE)
+    padrao_num = r'(?=\b(?:\d{1,4}\s*(?:fus[ãa]o|fus[õo]es|testes?|emendas?|ceo|caixas?|aberturas?|reaberturas?|ptro)|vt\s+sobressalente)\b)'
+    texto = re.sub(padrao_num, '\n', texto, flags=re.IGNORECASE)
+    return texto
 
 
 def extract_fields(text, db):
@@ -286,7 +219,8 @@ def extract_fields(text, db):
             if m_simple: data['data'] = m_simple.group(1)
 
     patterns = [(r"(?:causa|motivo)\s*[:;\-]?\s*(.+)", 'causa'),
-                (r"(?:localidade|cidade)\s*[:;\-]?\s*(.+)", 'localidade'), (r"ve[ií]culo\s*[:;\-]?\s*(\S+)", 'veiculo')]
+                (r"(?:localidade|cidade)\s*[:;\-]?\s*(.+)", 'localidade'),
+                (r"ve[ií]culo\s*[:;\-]?\s*(\S+)", 'veiculo')]
     for pat, key in patterns:
         if not data[key]:
             m = re.search(r"(?m)^.*?" + pat, text, re.IGNORECASE)
@@ -301,7 +235,6 @@ def extract_fields(text, db):
             if not data['localidade'] and loc_gps: data['localidade'] = loc_gps
 
     data['supervisor'] = "Wellington"
-
     exec_list = []
     text_lower = text.lower()
     found = set()
@@ -316,13 +249,13 @@ def extract_fields(text, db):
     for off in db['tecnicos']: try_add(off, off)
     for alias, off in DB_ALIASES.items():
         if off not in found and off in db['tecnicos']: try_add(alias, off)
+
     data['executantes_parsed'] = exec_list
 
     if not data['veiculo'] and exec_list:
         p = exec_list[0]['name']
         if p in db['veiculos']: data['veiculo'] = db['veiculos'][p]
 
-    raw_mat = ""
     m_gen = re.search(r"Ação de Recuperação:[\s\S]*?(?=\nMaterial|\nData|\Z|OBRA|SGM|Causa)", text, re.IGNORECASE)
     if m_gen:
         raw_mat = re.sub(r"Ação de Recuperação:\s*", "", m_gen.group(0), flags=re.IGNORECASE)
@@ -334,8 +267,7 @@ def extract_fields(text, db):
                 tmp.append(l)
         raw_mat = "\n".join(tmp)
 
-    mat_lines = clean_materials(raw_mat)
-    return data, mat_lines
+    return data, raw_mat
 
 
 def detect_launch(material_lines):
@@ -355,31 +287,42 @@ def detect_double_point(material_lines):
     return False
 
 
-def generate_pps(total_length, vt_each=15):
-    usable = total_length - (2 * vt_each)
+def extrair_vt_sobressalente(linhas):
+    vts = []
+    for linha in linhas:
+        m = re.search(r'vt\s+sobressalente.*?(\d+)\s*(?:m|mt|mts|metros).*?(?:xc|cs)\s*(\d+)', linha, re.IGNORECASE)
+        if m:
+            vts.append({'len': int(m.group(1)), 'xc': int(m.group(2))})
+    return vts
+
+
+def generate_pps(total_length, vt_each=15, extra_vt=0):
+    usable = total_length - (2 * vt_each) - extra_vt
     if usable <= 0: return []
     num_spans = max(1, round(usable / 40))
     return [round(usable / num_spans)] * num_spans
 
 
 def dividir_tratativas(material_lines):
-    divs = ["fus", "fusão", "fusões", "fusao", "tubo", "loose"]
-    esps = ["ceo", "ptro", "abertura", "reabertura", "caixa"]
+    divs = ["fus", "fusão", "fusões", "fusao", "tubo", "loose", "teste", "otdr"]
+    esps = ["ceo", "ptro", "abertura", "reabertura", "caixa", "emenda", "emendas"]
     p1, p2 = [], []
     itens = []
     for l in material_lines:
-        t = l.strip();
+        t = l.strip()
         low = t.lower()
         m = re.match(r"(\d+)\s*[-xX]?\s*(.+)", low)
         if not m: itens.append({"qtd": 1, "nome": low, "orig": t}); continue
         itens.append({"qtd": int(m.group(1)), "nome": m.group(2).strip(), "orig": t})
+
     esps_unit = [i for i in itens if i["qtd"] == 1 and any(k in i["nome"] for k in esps)]
     if len(esps_unit) == 2:
-        p1.append(esps_unit[0]["orig"]);
+        p1.append(esps_unit[0]["orig"])
         p2.append(esps_unit[1]["orig"])
         rest = [i for i in itens if i not in esps_unit]
     else:
         rest = itens.copy()
+
     for i in rest:
         qtd, nome, orig = i["qtd"], i["nome"], i["orig"]
         if any(f in nome for f in FILTRO_LANCAMENTO): p1.append(orig); continue
@@ -387,13 +330,13 @@ def dividir_tratativas(material_lines):
             if qtd == 1:
                 p1.append(orig)
             else:
-                md = qtd // 2;
+                md = qtd // 2
                 rs = qtd - md
                 if md > 0: p1.append(f"{md} {nome}")
                 if rs > 0: p2.append(f"{rs} {nome}")
             continue
         if any(k in nome for k in divs):
-            md = qtd // 2;
+            md = qtd // 2
             rs = qtd - md
             if md > 0: p1.append(f"{md} {nome}")
             if rs > 0: p2.append(f"{rs} {nome}")
@@ -402,14 +345,15 @@ def dividir_tratativas(material_lines):
     return p1, p2
 
 
-def create_overlay(parsed, materials_raw, pp_list, overlay_path):
+def create_overlay(parsed, materials_raw, pp_list, overlay_path, vts_extra=None):
+    if vts_extra is None: vts_extra = []
     if not os.path.exists(TEMPLATE_PDF):
         w_pt, h_pt = 595.27, 841.89
     else:
-        tpl = PdfReader(TEMPLATE_PDF);
-        p0 = tpl.pages[0];
+        tpl = PdfReader(TEMPLATE_PDF)
+        p0 = tpl.pages[0]
         mb = p0.MediaBox
-        w_pt = float(mb[2]) - float(mb[0]);
+        w_pt = float(mb[2]) - float(mb[0])
         h_pt = float(mb[3]) - float(mb[1])
     c = canvas.Canvas(str(overlay_path), pagesize=(w_pt, h_pt))
 
@@ -430,122 +374,155 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path):
         put_xy(f"nm_{i}", item['name'], 9, (EXEC_CONFIG['name_x'], cy))
         if item['re']: put_xy(f"re_{i}", item['re'], 9, (EXEC_CONFIG['re_x'], cy))
 
+    def quebrar_limite(linhas, limite=42):
+        nova_lista = []
+        for linha in linhas:
+            nova_lista.extend(textwrap.wrap(linha, width=limite))
+        return nova_lista
+
     mx, my = pct_to_pt(COORDS['materials_block'][0], COORDS['materials_block'][1], w_pt, h_pt)
     c.setFont('Helvetica', 8)
-    for i, ln in enumerate(materials_raw[:20]): c.drawString(mx, my - (i * 10), ln)
+    mat_lateral = quebrar_limite(materials_raw, 42)
+    for i, ln in enumerate(mat_lateral[:20]): c.drawString(mx, my - (i * 10), ln)
 
     l_pct, b_pct, r_pct, t_pct = COORDS['croqui_rect']
     dy = h_pt * ((t_pct + b_pct) / 2)
     lx = w_pt * (l_pct + 0.05)
     rx = w_pt * (r_pct - 0.05)
 
-    c.setLineWidth(2);
-    c.setDash(4, 2);
-    c.line(lx, dy, rx, dy);
+    c.setLineWidth(2)
+    c.setDash(4, 2)
+    c.line(lx, dy, rx, dy)
     c.setDash([])
 
     if parsed.get('endereco'):
         addr = parsed['endereco']
-        c.setFont('Helvetica-Bold', 10);
+        c.setFont('Helvetica-Bold', 10)
         tw = c.stringWidth(addr, 'Helvetica-Bold', 10)
-        cx = (lx + rx) / 2;
+        cx = (lx + rx) / 2
         c.drawString(cx - (tw / 2), dy - 100, addr)
 
     def draw_box(x, y, w, h, t, lines):
         c.rect(x, y, w, h, fill=0)
-        c.setFont("Helvetica-Bold", 8);
+        c.setFont("Helvetica-Bold", 8)
         c.drawString(x + 5, y + h - 10, t)
         c.setFont("Helvetica", 8)
         for i, l in enumerate(lines): c.drawString(x + 5, y + h - 20 - (i * 10), l)
 
+    # --- DETECTAR SUBTERRÂNEO AQUI ---
+    joined_materials = " ".join(materials_raw).lower()
+    is_subt = "subterraneo" in joined_materials or "subterrâneo" in joined_materials
+    pfx = "CS" if is_subt else "XC"
+
     if len(pp_list) == 0:
-        tot_w = rx - lx;
+        tot_w = rx - lx
         mid = lx + tot_w / 2
-        c.circle(lx, dy, 4, fill=1);
+        c.circle(lx, dy, 4, fill=1)
         c.drawString(lx - 12, dy - 20, "Início")
-        c.circle(mid, dy, 4, fill=1);
-        c.drawString(mid - 8, dy - 20, "XC")
-        c.circle(rx, dy, 4, fill=1);
+        c.circle(mid, dy, 4, fill=1)
+        c.drawString(mid - 8, dy - 20, pfx)  # Aplica o prefixo dinâmico
+        c.circle(rx, dy, 4, fill=1)
         c.drawString(rx - 8, dy - 20, "Fim")
 
-        bw, off = 220, 35;
-        bh = 15 + 12 + (len(materials_raw) * 10)
-        bx = mid - bw / 2;
+        bw, off = 220, 35
+        mat_box = quebrar_limite(materials_raw, 42)
+        bh = 15 + 12 + (len(mat_box) * 10)
+        bx = mid - bw / 2
         by = dy + off
-        draw_box(bx, by, bw, bh, "Tratativas", materials_raw)
-        c.line(mid, dy, mid, by);
+        draw_box(bx, by, bw, bh, "Tratativas", mat_box)
+        c.line(mid, dy, mid, by)
         c.drawString(mid - 4, by - 10, "↑")
     else:
         p1, p2 = dividir_tratativas(materials_raw)
+        p1_box = quebrar_limite(p1, 42)
+        p2_box = quebrar_limite(p2, 42)
+
         off, bw = 30, 180
-        h1 = 15 + 12 + (len(p1) * 10);
+        h1 = 15 + 12 + (len(p1_box) * 10)
         bx1, by1 = lx - 20, dy + off
-        draw_box(bx1, by1, bw, h1, "Tratativas E1", p1)
+        draw_box(bx1, by1, bw, h1, "Tratativas E1", p1_box)
         c.line(lx, dy, bx1 + bw / 2, by1)
 
-        h2 = 15 + 12 + (len(p2) * 10);
+        h2 = 15 + 12 + (len(p2_box) * 10)
         bx2, by2 = rx - bw + 20, dy + off
-        draw_box(bx2, by2, bw, h2, "Tratativas E2", p2)
+        draw_box(bx2, by2, bw, h2, "Tratativas E2", p2_box)
         c.line(rx, dy, bx2 + bw / 2, by2)
 
-        step = (rx - lx) / len(pp_list);
+        step = (rx - lx) / len(pp_list)
         cx = lx
         c.circle(cx, dy, 4, fill=1)
         has_cb = sum(pp_list) > 0
         if has_cb: c.drawString(cx - 10, dy + 15, "VT 15m")
-        c.drawString(cx - 10, dy - 20, "XC Inicial")
+        c.drawString(cx - 10, dy - 20, f"{pfx} Inicial")  # Aplica o prefixo dinâmico
 
         for i, dist in enumerate(pp_list):
-            nx = cx + step;
+            nx = cx + step
             mid = (cx + nx) / 2
             if dist > 0 and has_cb: c.drawString(mid - 15, dy + 5, f"PP {dist}m")
             c.circle(nx, dy, 4, fill=1)
             if i == len(pp_list) - 1:
-                c.drawString(nx - 10, dy - 20, "XC Final")
+                c.drawString(nx - 10, dy - 20, f"{pfx} Final")  # Aplica o prefixo dinâmico
                 if has_cb: c.drawString(nx - 10, dy + 15, "VT 15m")
             else:
-                c.drawString(nx - 8, dy - 20, "XC")
+                c.drawString(nx - 8, dy - 20, pfx)  # Aplica o prefixo dinâmico
             cx = nx
-    c.showPage();
+
+    # --- DESENHO DAS VTs SOBRESSALENTES ---
+    if vts_extra:
+        for vt in vts_extra:
+            xc_idx = vt['xc']
+            vt_len = vt['len']
+
+            if len(pp_list) > 0:
+                max_idx = len(pp_list)
+                if xc_idx > max_idx: xc_idx = max_idx
+                step = (rx - lx) / len(pp_list)
+                pole_x = lx + (xc_idx * step)
+            else:
+                pole_x = lx + (rx - lx) / 2
+
+            box_w, box_h = 100, 18
+            box_x = pole_x - (box_w / 2)
+            box_y = dy - 60
+
+            c.rect(box_x, box_y, box_w, box_h, fill=0)
+            c.setFont("Helvetica-Bold", 8)
+            texto_vt = f"VT Sobressal. {vt_len}m"
+            tw = c.stringWidth(texto_vt, "Helvetica-Bold", 8)
+            c.drawString(box_x + (box_w - tw) / 2, box_y + 6, texto_vt)
+
+            c.setDash(2, 2)
+            c.line(pole_x, dy, pole_x, box_y + box_h)
+            c.setDash([])
+
+    c.showPage()
     c.save()
 
 
 def merge_overlay(overlay_path, out_path):
     if not os.path.exists(TEMPLATE_PDF): os.replace(overlay_path, out_path); return
-    overlay = PdfReader(str(overlay_path));
+    overlay = PdfReader(str(overlay_path))
     template = PdfReader(TEMPLATE_PDF)
     if len(template.pages) > 0 and len(overlay.pages) > 0:
-        merger = PageMerge(template.pages[0]);
+        merger = PageMerge(template.pages[0])
         merger.add(overlay.pages[0]).render()
     PdfWriter(str(out_path), trailer=template).write()
 
 
 # --- HTML TEMPLATES ---
-LOGIN_HTML = """
-<!doctype html><html><head><meta charset="utf-8"><title>Login Administrativo</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
+LOGIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>Login Administrativo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"><style>
 body{font-family:'Segoe UI',sans-serif; background:#f0f2f5; text-align:center; padding-top:100px; margin:0;}
 .box{background:#fff; padding:30px; border-radius:10px; display:inline-block; box-shadow:0 4px 10px rgba(0,0,0,0.1); width:90%; max-width:350px;}
 input{padding:12px; margin-bottom:15px; width:100%; box-sizing:border-box; border:1px solid #ccc; border-radius:5px;}
 button{padding:12px; width:100%; background:#007bff; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;}
-</style></head><body>
-<div class="box">
-    <h2>Acesso Restrito</h2>
-    {% if erro %}<p style="color:#dc3545; font-weight:bold;">Senha Incorreta</p>{% endif %}
-    <form method="post">
-        <input type="password" name="senha" placeholder="Digite a senha..." required>
-        <button type="submit">Entrar</button>
-    </form>
-    <br><a href="/" style="color:#666; text-decoration:none;">&laquo; Voltar ao Gerador</a>
-</div>
-</body></html>
-"""
+</style></head><body><div class="box"><h2>Acesso Restrito</h2>
+{% if erro %}<p style="color:#dc3545; font-weight:bold;">Senha Incorreta</p>{% endif %}
+<form method="post"><input type="password" name="senha" placeholder="Digite a senha..." required><button type="submit">Entrar</button></form>
+<br><a href="/" style="color:#666; text-decoration:none;">&laquo; Voltar ao Gerador</a></div></body></html>"""
 
-ADMIN_HTML = """
-<!doctype html><html><head><meta charset="utf-8"><title>Painel Administrativo</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
+ADMIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>Painel Administrativo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"><style>
 body{font-family:'Segoe UI',sans-serif; background:#f0f2f5; padding:20px; margin:0;}
 .container{max-width:1000px; margin:auto; background:#fff; padding:25px; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,0.1);}
 h2 {color: #333; margin-top:0;}
@@ -561,20 +538,11 @@ input.edit-input{padding:8px; border:1px solid #ccc; border-radius:4px; width:10
 .btn-del{background:#dc3545; color:#fff;}
 .form-grid{display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap:15px;}
 .actions-cell {white-space: nowrap; width: 150px;}
-
-/* Estilos da nova barra de pesquisa */
 .search-container { display: flex; justify-content: space-between; align-items: center; margin-top: 30px; margin-bottom: 10px; }
 .search-input { padding: 10px 15px; border: 1px solid #ccc; border-radius: 20px; width: 100%; max-width: 300px; outline: none; transition: 0.3s; font-size: 14px;}
 .search-input:focus { border-color: #007bff; box-shadow: 0 0 5px rgba(0,123,255,0.3); }
-
-@media (max-width: 768px) { 
-    .form-grid{grid-template-columns: 1fr;} 
-    table {display:block; overflow-x:auto;} 
-    .search-container { flex-direction: column; align-items: flex-start; gap: 10px; }
-    .search-input { max-width: 100%; }
-}
-</style>
-<script>
+@media (max-width: 768px) { .form-grid{grid-template-columns: 1fr;} table {display:block; overflow-x:auto;} .search-container { flex-direction: column; align-items: flex-start; gap: 10px; } .search-input { max-width: 100%; } }
+</style><script>
 function toggleEdit(rowId) {
     const row = document.getElementById(rowId);
     const spans = row.querySelectorAll('.view-data');
@@ -583,119 +551,62 @@ function toggleEdit(rowId) {
     const btnSave = row.querySelector('.btn-save');
     const btnCancel = row.querySelector('.btn-cancel');
     const btnDel = row.querySelector('.btn-del');
-
     let isEditing = inputs[0].style.display !== 'none';
-
-    if (isEditing) {
-        spans.forEach(s => s.style.display = '');
-        inputs.forEach(i => i.style.display = 'none');
-        btnEdit.style.display = '';
-        btnSave.style.display = 'none';
-        btnCancel.style.display = 'none';
-        btnDel.style.display = '';
-    } else {
-        spans.forEach(s => s.style.display = 'none');
-        inputs.forEach(i => i.style.display = '');
-        btnEdit.style.display = 'none';
-        btnSave.style.display = '';
-        btnCancel.style.display = '';
-        btnDel.style.display = 'none';
-    }
+    if (isEditing) { spans.forEach(s => s.style.display = ''); inputs.forEach(i => i.style.display = 'none'); btnEdit.style.display = ''; btnSave.style.display = 'none'; btnCancel.style.display = 'none'; btnDel.style.display = '';
+    } else { spans.forEach(s => s.style.display = 'none'); inputs.forEach(i => i.style.display = ''); btnEdit.style.display = 'none'; btnSave.style.display = ''; btnCancel.style.display = ''; btnDel.style.display = 'none'; }
 }
-
-// LÓGICA DE BUSCA NO PAINEL
 document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('search-admin');
     if (searchInput) {
         searchInput.addEventListener('input', function() {
-            const filter = this.value.toLowerCase();
+            const filter = this.value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
             const rows = document.querySelectorAll('tbody tr');
-
             rows.forEach(row => {
-                // Captura todo o texto da linha (inclui nome, RE, Placa e Área)
-                const rowText = row.innerText.toLowerCase();
-                if (rowText.includes(filter)) {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
+                const rowText = row.innerText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                if (rowText.includes(filter)) { row.style.display = ''; } else { row.style.display = 'none'; }
             });
         });
     }
 });
-</script>
-</head><body>
-<div class="container">
-    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #eee; padding-bottom:15px; margin-bottom:20px;">
-        <h2>⚙️ Gerenciar Técnicos na Nuvem</h2>
-        <div><a href="/" style="text-decoration:none; color:#007bff; margin-right:15px;">&laquo; Gerador</a> <a href="/logout" style="text-decoration:none; color:#dc3545;">Sair</a></div>
-    </div>
-
-    <form method="post" style="background:#f8f9fa; padding:20px; border-radius:8px; border:1px solid #eee;">
-        <h3 style="margin-top:0; color:#444; margin-bottom:15px;">Adicionar Novo Técnico</h3>
-        <input type="hidden" name="action" value="add">
-        <div class="form-grid">
-            <input type="text" name="nome" class="edit-input" placeholder="Nome Completo" required style="padding:12px;">
-            <input type="text" name="re" class="edit-input" placeholder="RE" style="padding:12px;">
-            <input type="text" name="area" class="edit-input" placeholder="Área" style="padding:12px;">
-            <input type="text" name="placa" class="edit-input" placeholder="Placa" style="padding:12px;">
-        </div>
-        <button type="submit" class="btn btn-add">+ Salvar Técnico</button>
-    </form>
-
-    <div class="search-container">
-        <h3 style="color:#444; margin:0;">Técnicos Cadastrados</h3>
-        <input type="text" id="search-admin" class="search-input" placeholder="🔍 Buscar por nome, RE ou placa...">
-    </div>
-
-    <table>
-        <thead><tr><th>Nome</th><th>RE</th><th>Área</th><th>Veículo</th><th style="text-align:center;">Ações</th></tr></thead>
-        <tbody>
-        {% for nome, info in tecnicos.items() %}
-        <tr id="row-{{ loop.index }}">
-            <form method="post">
-            <input type="hidden" name="action" value="edit">
-            <input type="hidden" name="original_nome" value="{{ nome }}">
-            <td>
-                <span class="view-data">{{ nome.title() }}</span>
-                <input class="edit-input" name="new_nome" value="{{ nome.title() }}" style="display:none;" required>
-            </td>
-            <td>
-                <span class="view-data">{{ info.re }}</span>
-                <input class="edit-input" name="re" value="{{ info.re }}" style="display:none;">
-            </td>
-            <td>
-                <span class="view-data">{{ info.area }}</span>
-                <input class="edit-input" name="area" value="{{ info.area }}" style="display:none;">
-            </td>
-            <td>
-                <span class="view-data">{{ veiculos.get(nome, '-') }}</span>
-                <input class="edit-input" name="placa" value="{{ veiculos.get(nome, '') }}" style="display:none;">
-            </td>
-            <td class="actions-cell" style="text-align:center;">
-                <button type="button" class="btn btn-edit" onclick="toggleEdit('row-{{ loop.index }}')">Editar</button>
-                <button type="submit" class="btn btn-save" style="display:none;">Salvar</button>
-                <button type="button" class="btn btn-cancel" style="display:none;" onclick="toggleEdit('row-{{ loop.index }}')">Cancelar</button>
-            </td>
-            </form>
-            <td style="border-left:none; text-align:center; width: 60px;">
-                 <form method="post" style="display:inline;">
-                    <input type="hidden" name="action" value="delete">
-                    <input type="hidden" name="nome" value="{{ nome }}">
-                    <button type="submit" class="btn btn-del view-data">Excluir</button>
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-</div>
-</body></html>
-"""
+</script></head><body><div class="container">
+<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #eee; padding-bottom:15px; margin-bottom:20px;">
+<h2>⚙️ Gerenciar Técnicos na Nuvem</h2><div><a href="/" style="text-decoration:none; color:#007bff; margin-right:15px;">&laquo; Gerador</a> <a href="/logout" style="text-decoration:none; color:#dc3545;">Sair</a></div></div>
+<form method="post" style="background:#f8f9fa; padding:20px; border-radius:8px; border:1px solid #eee;">
+<h3 style="margin-top:0; color:#444; margin-bottom:15px;">Adicionar Novo Técnico</h3><input type="hidden" name="action" value="add">
+<div class="form-grid"><input type="text" name="nome" class="edit-input" placeholder="Nome Completo" required style="padding:12px;">
+<input type="text" name="re" class="edit-input" placeholder="RE" style="padding:12px;">
+<input type="text" name="area" class="edit-input" placeholder="Área" style="padding:12px;">
+<input type="text" name="placa" class="edit-input" placeholder="Placa" style="padding:12px;"></div>
+<button type="submit" class="btn btn-add">+ Salvar Técnico</button></form>
+<div class="search-container"><h3 style="color:#444; margin:0;">Técnicos Cadastrados</h3>
+<input type="text" id="search-admin" class="search-input" placeholder="🔍 Buscar por nome, RE ou placa..."></div>
+<table><thead><tr><th>Nome</th><th>RE</th><th>Área</th><th>Veículo</th><th style="text-align:center;">Ações</th></tr></thead><tbody>
+{% for nome, info in tecnicos.items() %}<tr id="row-{{ loop.index }}">
+<form method="post"><input type="hidden" name="action" value="edit"><input type="hidden" name="original_nome" value="{{ nome }}">
+<td><span class="view-data">{{ nome.title() }}</span><input class="edit-input" name="new_nome" value="{{ nome.title() }}" style="display:none;" required></td>
+<td><span class="view-data">{{ info.re }}</span><input class="edit-input" name="re" value="{{ info.re }}" style="display:none;"></td>
+<td><span class="view-data">{{ info.area }}</span><input class="edit-input" name="area" value="{{ info.area }}" style="display:none;"></td>
+<td><span class="view-data">{{ veiculos.get(nome, '-') }}</span><input class="edit-input" name="placa" value="{{ veiculos.get(nome, '') }}" style="display:none;"></td>
+<td class="actions-cell" style="text-align:center;"><button type="button" class="btn btn-edit" onclick="toggleEdit('row-{{ loop.index }}')">Editar</button>
+<button type="submit" class="btn btn-save" style="display:none;">Salvar</button><button type="button" class="btn btn-cancel" style="display:none;" onclick="toggleEdit('row-{{ loop.index }}')">Cancelar</button></td></form>
+<td style="border-left:none; text-align:center; width: 60px;"><form method="post" style="display:inline;"><input type="hidden" name="action" value="delete">
+<input type="hidden" name="nome" value="{{ nome }}"><button type="submit" class="btn btn-del view-data">Excluir</button></form></td></tr>
+{% endfor %}</tbody></table></div></body></html>"""
 
 PASTE_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Colar Relatório</title><style>body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f5;padding:20px;text-align:center;margin:0}.container{width:90%;max-width:700px;margin:20px auto;background:#fff;padding:25px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1)}textarea{width:100%;height:300px;padding:15px;margin-bottom:20px;border:2px solid #ddd;border-radius:8px;font-size:16px;font-family:monospace;resize:vertical;background-color:#fafafa;box-sizing:border-box}textarea:focus{border-color:#007bff;outline:none;background:#fff}button{width:100%;padding:15px;font-size:18px;background:#007bff;color:#fff;border:none;border-radius:6px;cursor:pointer;transition:0.2s;font-weight:bold;margin-bottom:15px}button:hover{background:#0056b3}h2{color:#333;margin-bottom:10px}.manual-link{display:inline-block;margin-top:15px;color:#666;text-decoration:none;font-size:14px; margin-right:15px;}.manual-link:hover{text-decoration:underline;color:#007bff}.info{color:#666;font-size:14px;margin-bottom:20px}</style></head><body><div class="container"><h2>Gerador de Croquis</h2><p class="info">Cole abaixo o texto do WhatsApp ou do Sistema <strong>GENESIS</strong>.</p><form method="post" action="/preencher"><textarea name="raw_text" placeholder="Cole aqui..."></textarea><br><button type="submit">Processar Texto &raquo;</button></form><div><a href="/form" class="manual-link">Preencher manualmente</a> | <a href="/admin" class="manual-link" style="color:#28a745;">☁️ Painel de Técnicos</a></div></div></body></html>"""
 
-FORM_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Confirmar</title><style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;padding:10px;margin:0}.container{width:95%;max-width:900px;margin:10px auto;background:#fff;padding:20px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.05);box-sizing:border-box}input,textarea{width:100%;padding:12px;margin-bottom:15px;border:1px solid #ccc;border-radius:5px;font-size:16px;box-sizing:border-box}textarea{height:150px;font-family:monospace}button{padding:15px;font-size:16px;border:none;border-radius:5px;cursor:pointer;font-weight:bold;color:#fff;width:100%;margin-bottom:10px}#btn-validate{background:#28a745}#btn-validate:hover{background:#218838}h3{margin-top:20px;border-bottom:2px solid #eee;padding-bottom:10px;color:#444;font-size:18px}label{font-weight:600;font-size:14px;color:#555;display:block;margin-bottom:5px}.error{border:2px solid #dc3545!important;background:#fff0f0}.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:15px}.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px}@media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr;gap:10px}.container{padding:15px;width:100%}}.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:999;display:none;justify-content:center;align-items:center}.modal-content{background:#fff;padding:25px;border-radius:12px;width:90%;max-width:400px;box-shadow:0 5px 15px rgba(0,0,0,0.3)}.modal-title{font-size:1.2rem;font-weight:bold;margin-bottom:15px;color:#dc3545}.modal-list{margin-bottom:20px;padding-left:20px;color:#333}.modal-actions{display:flex;flex-direction:column;gap:10px}#btn-modal-back{background:#6c757d}#btn-modal-proceed{background:#007bff}.tag{display:inline-block;background:#e9ecef;color:#333;padding:8px 14px;border-radius:20px;margin:4px;font-size:14px;border:1px solid #ddd}.tag span{margin-left:10px;cursor:pointer;color:#dc3545;font-weight:bold}#exec-list{max-height:200px;overflow-y:auto;border:1px solid #eee;border-radius:4px;margin-bottom:10px}#exec-list div{padding:12px;border-bottom:1px solid #f0f0f0;cursor:pointer;display:flex;justify-content:space-between}#exec-list div:hover{background:#f8f9fa;color:#007bff}.area-badge{color:#999;font-size:0.9em}.back-btn{background:#007bff;text-decoration:none;display:block;color:white;padding:15px;border-radius:5px;text-align:center;margin-bottom:10px;font-weight:bold}</style></head><script>document.addEventListener('DOMContentLoaded',()=>{let tecnicos=[];let selecionados={{ executantes_list|tojson }};let veiculosMap={{ veiculos_map|tojson }};fetch('/tecnicos').then(r=>r.json()).then(d=>tecnicos=d);const form=document.querySelector('form');const input=document.getElementById('exec-input');const list=document.getElementById('exec-list');const hidden=document.getElementById('exec-hidden');const tagsBox=document.getElementById('exec-tags');const inputVeiculo=document.querySelector('input[name="veiculo"]');const modalOverlay=document.getElementById('modal-overlay');const modalList=document.getElementById('modal-list');const btnValidate=document.getElementById('btn-validate');const btnModalBack=document.getElementById('btn-modal-back');const btnModalProceed=document.getElementById('btn-modal-proceed');function atualizarHidden(){hidden.value=selecionados.join(', ');if(selecionados.length>0)input.classList.remove('error')}function renderTags(){tagsBox.innerHTML='';selecionados.forEach(nome=>{const tag=document.createElement('div');tag.className='tag';tag.innerHTML=`${nome} <span>&times;</span>`;tag.querySelector('span').onclick=()=>{selecionados=selecionados.filter(n=>n!==nome);atualizarHidden();renderTags()};tagsBox.appendChild(tag)})}renderTags();atualizarHidden();input.addEventListener('input',()=>{const v=input.value.toLowerCase();list.innerHTML='';if(!v)return;input.classList.remove('error');tecnicos.filter(t=>t.name.toLowerCase().includes(v)&&!selecionados.includes(t.name)).slice(0,8).forEach(t=>{const div=document.createElement('div');div.innerHTML=`<span>${t.name}</span> <span class="area-badge">Area ${t.area}</span>`;div.onclick=()=>{selecionados.push(t.name);if(veiculosMap[t.name]&&inputVeiculo.value==="")inputVeiculo.value=veiculosMap[t.name];inputVeiculo.classList.remove('error');atualizarHidden();renderTags();input.value='';list.innerHTML=''};list.appendChild(div)})});document.querySelectorAll('input, textarea').forEach(el=>{el.addEventListener('input',function(){if(this.value.trim()!=='')this.classList.remove('error')})});btnValidate.addEventListener('click',(e)=>{e.preventDefault();let missing=[];const fields=[{name:'ta',label:'TA'},{name:'codigo_obra',label:'Código Obra'},{name:'causa',label:'Causa'},{name:'endereco',label:'Endereço'},{name:'localidade',label:'Localidade'},{name:'tronco',label:'Tronco'},{name:'veiculo',label:'Veículo'},{name:'supervisor',label:'Supervisor'},{name:'data',label:'Data'},{name:'itens',label:'Tratativas'}];fields.forEach(f=>{const el=document.querySelector(`[name="${f.name}"]`);if(!el.value.trim()){el.classList.add('error');missing.push(f.label)}});if(selecionados.length===0){input.classList.add('error');missing.push('Executantes')}if(missing.length>0){modalList.innerHTML=missing.map(i=>`<li>${i}</li>`).join('');modalOverlay.style.display='flex'}else{form.submit()}});btnModalBack.addEventListener('click',()=>{modalOverlay.style.display='none'});btnModalProceed.addEventListener('click',()=>{modalOverlay.style.display='none';form.submit()})});</script><body><div id="modal-overlay" class="modal-overlay"><div class="modal-content"><div class="modal-title">Campos Vazios</div><p>Faltam preencher:</p><ul id="modal-list" class="modal-list"></ul><div class="modal-actions"><button id="btn-modal-back" type="button">Voltar</button><button id="btn-modal-proceed" type="button">Gerar Assim Mesmo</button></div></div></div><div class="container"><form method="post" action="/generate" target="_blank"><input type="hidden" name="lat" value="{{ data.get('lat','') }}"><input type="hidden" name="lon" value="{{ data.get('lon','') }}"><h3>Dados Principais</h3><div class="grid-2"><div><label>TA</label><input name="ta" value="{{ data.get('ta','') }}"></div><div><label>Código Obra (SGM)</label><input name="codigo_obra" value="{{ data.get('codigo_obra','') }}"></div></div><label>Causa</label><input name="causa" value="{{ data.get('causa','') }}"><label>Endereço</label><input name="endereco" value="{{ data.get('endereco','') }}"><div class="grid-3"><div><label>Localidade</label><input name="localidade" value="{{ data.get('localidade','') }}"></div><div><label>ES</label><input name="es" value="{{ data.get('es','') }}"></div><div><label>AT</label><input name="at" value="{{ data.get('at','') }}"></div></div><div class="grid-2"><div><label>Tronco</label><input name="tronco" value="{{ data.get('tronco','') }}"></div><div><label>Veículo</label><input name="veiculo" value="{{ data.get('veiculo','') }}"></div></div><div class="grid-2"><div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','Wellington') }}"></div><div><label>Data</label><input name="data" value="{{ data.get('data','') }}"></div></div><h3>Executantes</h3><div id="exec-tags" style="margin-bottom:10px"></div><input id="exec-input" placeholder="Buscar técnico..."><div id="exec-list"></div><input type="hidden" name="executantes" id="exec-hidden"><h3>Tratativas</h3><textarea name="itens">{{ itens_texto }}</textarea><div style="margin-top:30px"><button id="btn-validate" type="submit">Gerar PDF</button><a href="/" class="back-btn">Voltar</a></div></form></div></body></html>"""
+FORM_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Confirmar Dados - Gerador de Croqui</title>
+<style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;padding:10px;margin:0} .container{width:95%;max-width:900px;margin:10px auto;background:#fff;padding:20px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.05);box-sizing:border-box} input,textarea{width:100%;padding:12px;margin-bottom:15px;border:1px solid #ccc;border-radius:5px;font-size:16px;box-sizing:border-box} textarea{height:150px;font-family:monospace} button{padding:15px;font-size:16px;border:none;border-radius:5px;cursor:pointer;font-weight:bold;color:#fff;width:100%;margin-bottom:10px} #btn-validate{background:#28a745} #btn-validate:hover{background:#218838} h3{margin-top:20px;border-bottom:2px solid #eee;padding-bottom:10px;color:#444;font-size:18px} label{font-weight:600;font-size:14px;color:#555;display:block;margin-bottom:5px} .error{border:2px solid #dc3545!important;background:#fff0f0} .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:15px} .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px} @media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr;gap:10px} .container{padding:15px;width:100%}} .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:999;display:none;justify-content:center;align-items:center} .modal-content{background:#fff;padding:25px;border-radius:12px;width:90%;max-width:400px;box-shadow:0 5px 15px rgba(0,0,0,0.3)} .modal-title{font-size:1.2rem;font-weight:bold;margin-bottom:15px;color:#dc3545} .modal-list{margin-bottom:20px;padding-left:20px;color:#333} .modal-actions{display:flex;flex-direction:column;gap:10px} #btn-modal-back{background:#6c757d} #btn-modal-proceed{background:#007bff} .tag{display:inline-block;background:#e9ecef;color:#333;padding:8px 14px;border-radius:20px;margin:4px;font-size:14px;border:1px solid #ddd} .tag span{margin-left:10px;cursor:pointer;color:#dc3545;font-weight:bold} #exec-list{max-height:200px;overflow-y:auto;border:1px solid #eee;border-radius:4px;margin-bottom:10px} #exec-list div{padding:12px;border-bottom:1px solid #f0f0f0;cursor:pointer;display:flex;justify-content:space-between} #exec-list div:hover{background:#f8f9fa;color:#007bff} .area-badge{color:#999;font-size:0.9em} .back-btn{background:#007bff;text-decoration:none;display:block;color:white;padding:15px;border-radius:5px;text-align:center;margin-bottom:10px;font-weight:bold}</style></head>
+<body><div id="modal-overlay" class="modal-overlay"><div class="modal-content"><div class="modal-title">Campos Vazios</div><p>Faltam preencher:</p><ul id="modal-list" class="modal-list"></ul><div class="modal-actions"><button id="btn-modal-back" type="button">Voltar</button><button id="btn-modal-proceed" type="button">Gerar Assim Mesmo</button></div></div></div>
+<div class="container"><form method="post" action="/generate" target="_blank"><input type="hidden" name="lat" value="{{ data.get('lat','') }}"><input type="hidden" name="lon" value="{{ data.get('lon','') }}">
+<h3>Dados Principais</h3><div class="grid-2"><div><label>TA</label><input name="ta" value="{{ data.get('ta','') }}"></div><div><label>Código Obra (SGM)</label><input name="codigo_obra" value="{{ data.get('codigo_obra','') }}"></div></div>
+<label>Causa</label><input name="causa" value="{{ data.get('causa','') }}"><label>Endereço</label><input name="endereco" value="{{ data.get('endereco','') }}">
+<div class="grid-3"><div><label>Localidade</label><input name="localidade" value="{{ data.get('localidade','') }}"></div><div><label>ES</label><input name="es" value="{{ data.get('es','') }}"></div><div><label>AT</label><input name="at" value="{{ data.get('at','') }}"></div></div>
+<div class="grid-2"><div><label>Tronco</label><input name="tronco" value="{{ data.get('tronco','') }}"></div><div><label>Veículo</label><input name="veiculo" value="{{ data.get('veiculo','') }}"></div></div>
+<div class="grid-2"><div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','Wellington') }}"></div><div><label>Data</label><input name="data" value="{{ data.get('data','') }}"></div></div>
+<h3>Executantes</h3><div id="exec-tags" style="margin-bottom:10px"></div><input id="exec-input" placeholder="Buscar técnico na nuvem..."><div id="exec-list"></div><input type="hidden" name="executantes" id="exec-hidden">
+<h3>Tratativas</h3><textarea name="itens">{{ itens_texto }}</textarea><div style="margin-top:30px"><button id="btn-validate" type="submit">Gerar PDF Final</button><a href="/" class="back-btn">Voltar para Início</a></div></form></div>
+<script>document.addEventListener('DOMContentLoaded', () => { let tecnicos = []; let selecionados = {{ executantes_list|tojson }}; let veiculosMap = {{ veiculos_map|tojson }}; fetch('/tecnicos').then(r => r.json()).then(d => { tecnicos = d; console.log("Base de técnicos carregada!"); }); const form = document.querySelector('form'); const input = document.getElementById('exec-input'); const list = document.getElementById('exec-list'); const hidden = document.getElementById('exec-hidden'); const tagsBox = document.getElementById('exec-tags'); const inputVeiculo = document.querySelector('input[name="veiculo"]'); const modalOverlay = document.getElementById('modal-overlay'); const modalList = document.getElementById('modal-list'); const btnValidate = document.getElementById('btn-validate'); const btnModalBack = document.getElementById('btn-modal-back'); const btnModalProceed = document.getElementById('btn-modal-proceed'); function atualizarHidden() { hidden.value = selecionados.join(', '); if (selecionados.length > 0) input.classList.remove('error'); } function renderTags() { tagsBox.innerHTML = ''; selecionados.forEach(nome => { const tag = document.createElement('div'); tag.className = 'tag'; tag.innerHTML = `${nome} <span>&times;</span>`; tag.querySelector('span').onclick = () => { selecionados = selecionados.filter(n => n !== nome); atualizarHidden(); renderTags(); }; tagsBox.appendChild(tag); }); } renderTags(); atualizarHidden(); input.addEventListener('input', () => { const v = input.value.toLowerCase(); list.innerHTML = ''; if (!v) return; input.classList.remove('error'); tecnicos.filter(t => t.name.toLowerCase().includes(v) && !selecionados.includes(t.name)).slice(0, 8).forEach(t => { const div = document.createElement('div'); div.innerHTML = `<span>${t.name}</span> <span class="area-badge">Área ${t.area}</span>`; div.onclick = () => { selecionados.push(t.name); const nomeChave = t.name.toLowerCase(); if (veiculosMap[nomeChave] && inputVeiculo.value === "") { inputVeiculo.value = veiculosMap[nomeChave]; inputVeiculo.classList.remove('error'); } atualizarHidden(); renderTags(); input.value = ''; list.innerHTML = ''; }; list.appendChild(div); }); }); document.querySelectorAll('input, textarea').forEach(el => { el.addEventListener('input', function() { if (this.value.trim() !== '') this.classList.remove('error'); }); }); btnValidate.addEventListener('click', (e) => { e.preventDefault(); let missing = []; const fields = [ {name: 'ta', label: 'TA'}, {name: 'codigo_obra', label: 'Código Obra'}, {name: 'causa', label: 'Causa'}, {name: 'endereco', label: 'Endereço'}, {name: 'localidade', label: 'Localidade'}, {name: 'tronco', label: 'Tronco'}, {name: 'veiculo', label: 'Veículo'}, {name: 'supervisor', label: 'Supervisor'}, {name: 'data', label: 'Data'}, {name: 'itens', label: 'Tratativas'} ]; fields.forEach(f => { const el = document.querySelector(`[name="${f.name}"]`); if (!el.value.trim()) { el.classList.add('error'); missing.push(f.label); } }); if (selecionados.length === 0) { input.classList.add('error'); missing.push('Executantes'); } if (missing.length > 0) { modalList.innerHTML = missing.map(i => `<li>${i}</li>`).join(''); modalOverlay.style.display = 'flex'; } else { form.submit(); } }); btnModalBack.addEventListener('click', () => { modalOverlay.style.display = 'none'; }); btnModalProceed.addEventListener('click', () => { modalOverlay.style.display = 'none'; form.submit(); }); });</script></body></html>"""
 
 
 # --- ROTAS NOVAS (ADMINISTRAÇÃO FIREBASE) ---
@@ -720,50 +631,38 @@ def logout():
 @app.route('/admin', methods=['GET', 'POST'])
 def admin():
     if not session.get('admin_logged_in'): return redirect(url_for('login'))
-
     db = load_db()
     if request.method == 'POST':
         action = request.form.get('action')
-
-        # --- ADICIONAR ---
         if action == 'add':
             nome = request.form.get('nome', '').strip().lower()
             if nome:
-                db['tecnicos'][nome] = {
-                    're': request.form.get('re', '').strip(),
-                    'area': request.form.get('area', '').strip()
-                }
+                db['tecnicos'][nome] = {'re': request.form.get('re', '').strip(),
+                                        'area': request.form.get('area', '').strip()}
                 placa = request.form.get('placa', '').strip().upper()
                 if placa: db['veiculos'][nome] = placa
                 save_db(db)
-
-        # --- EDITAR ---
         elif action == 'edit':
             orig_nome = request.form.get('original_nome')
             new_nome = request.form.get('new_nome', '').strip().lower()
             re_code = request.form.get('re', '').strip()
             area = request.form.get('area', '').strip()
             placa = request.form.get('placa', '').strip().upper()
-
             if orig_nome and new_nome and orig_nome in db['tecnicos']:
                 if new_nome != orig_nome:
                     del db['tecnicos'][orig_nome]
                     if orig_nome in db['veiculos']: del db['veiculos'][orig_nome]
-
                 db['tecnicos'][new_nome] = {'re': re_code, 'area': area}
                 if placa:
                     db['veiculos'][new_nome] = placa
                 elif new_nome in db['veiculos']:
                     del db['veiculos'][new_nome]
                 save_db(db)
-
-        # --- REMOVER ---
         elif action == 'delete':
             nome = request.form.get('nome')
             if nome in db['tecnicos']: del db['tecnicos'][nome]
             if nome in db['veiculos']: del db['veiculos'][nome]
             save_db(db)
-
         return redirect(url_for('admin'))
 
     tecnicos_sorted = dict(sorted(db['tecnicos'].items()))
@@ -791,7 +690,8 @@ def form_vazio():
 def preencher():
     db = load_db()
     raw_text = request.form.get('raw_text', '')
-    parsed_manual, material_lines = extract_fields(raw_text, db)
+
+    parsed_manual, raw_mat = extract_fields(raw_text, db)
 
     ta_encontrada = parsed_manual.get('ta')
     if ta_encontrada:
@@ -808,6 +708,9 @@ def preencher():
                         parsed_manual[campo] = parsed_telegram[campo]
         except Exception as e:
             print(f"Erro Telegram: {e}")
+
+    raw_mat = organizar_tratativas(raw_mat)
+    material_lines = [formatar_texto(l.strip()) for l in raw_mat.splitlines() if l.strip()]
 
     exec_names = [e['name'].title() for e in parsed_manual.get('executantes_parsed', [])]
     itens_texto = "\n".join(material_lines)
@@ -850,7 +753,13 @@ def generate():
         'lat': request.form.get('lat', ''), 'lon': request.form.get('lon', '')
     }
 
+    # 1. Pega o texto bruto do formulário
     itens_raw = request.form.get('itens', '')
+
+    # 2. Organiza injetando os "Enters" antes de fatiar
+    itens_raw = organizar_tratativas(itens_raw)
+
+    # 3. Fatia o texto (agora já organizado) em uma lista limpa
     material_lines = [formatar_texto(l.strip()) for l in itens_raw.splitlines() if l.strip()]
 
     final_materials = []
@@ -862,27 +771,32 @@ def generate():
             final_materials.append(line)
 
     material_lines = final_materials
+
+    # --- INTEGRAÇÃO DA VT SOBRESSALENTE ---
+    vts_extra = extrair_vt_sobressalente(material_lines)
+    total_extra_vt = sum(v['len'] for v in vts_extra)
+
     total_len = detect_launch(material_lines)
     is_double_point = False
     if total_len is None and detect_double_point(material_lines):
-        is_double_point = True;
+        is_double_point = True
         total_len = 0
 
-    pp_list = generate_pps(total_len) if total_len is not None and total_len > 0 else (
+    pp_list = generate_pps(total_len, extra_vt=total_extra_vt) if total_len is not None and total_len > 0 else (
         [0, 0, 0, 0] if is_double_point else [])
 
     codigo = re.sub(r'[^\w\-]', '', parsed.get('ta') or f"doc_{random.randint(1000, 9999)}")
     overlay_path = OUTPUT_DIR / f"{codigo}_overlay.pdf"
     out_pdf = OUTPUT_DIR / f"{codigo}.pdf"
 
-    create_overlay(parsed, material_lines, pp_list, overlay_path)
+    create_overlay(parsed, material_lines, pp_list, overlay_path, vts_extra)
     merge_overlay(overlay_path, out_pdf)
     return redirect(url_for('view_pdf', filename=out_pdf.name))
 
 
 if __name__ == '__main__':
     if not os.path.exists(TEMPLATE_PDF):
-        c = canvas.Canvas(TEMPLATE_PDF);
-        c.drawString(100, 700, "TEMPLATE AUSENTE");
+        c = canvas.Canvas(TEMPLATE_PDF)
+        c.drawString(100, 700, "TEMPLATE AUSENTE")
         c.save()
     app.run(debug=True, port=5000)
