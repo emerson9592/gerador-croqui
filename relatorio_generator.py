@@ -106,7 +106,9 @@ async def search_telegram_message(ta_number):
                 try:
                     entity = await client.get_entity(group_id)
                     async for message in client.iter_messages(entity, search=ta_number, limit=20):
-                        if message.text: return message.text
+                        # Garante que não é um recado curto, tem que ser o carimbo!
+                        if message.text and ("RESPOSTA" in message.text.upper() or "SIGLA" in message.text.upper()):
+                            return message.text
                 except Exception:
                     continue
     except Exception as e:
@@ -197,20 +199,24 @@ def extract_fields(text, db):
     m_sgm = re.search(r"(?:SGM|Obra)[\s:\-]*(\d{8,})", text, re.IGNORECASE)
     if m_sgm: data['codigo_obra'] = m_sgm.group(1)
 
-    m_sigla = re.search(r"\b([A-Z]{3})\.([A-Z0-9]{2})\b", text)
+    # =========================================================
+    # LÓGICA ESTRITA PARA ES E AT (Sem buscas genéricas)
+    # =========================================================
+    # Busca estritamente pelas palavras SIGLA ou RESPOSTA.
+    # Ignora espaços, dois-pontos ou ponto-e-vírgula logo após, e pega o padrão XXX.YY
+    m_sigla = re.search(r"(?:SIGLA|RESPOSTA)[\s:;\-]*([A-Z]{3})[\.\-\s]+([A-Z0-9]{2})\b", text, re.IGNORECASE)
     if m_sigla:
         data['es'] = m_sigla.group(1).upper()
         data['at'] = m_sigla.group(2).upper()
-    else:
-        if not data['es']:
-            m_es = re.search(r"ES\s*[:\-]?\s*([A-Za-z]{3,})", text, re.IGNORECASE)
-            if m_es: data['es'] = m_es.group(1).upper()
-        if not data['at']:
-            m_at = re.search(r"AT\s*[:\-]\s*(\d+)", text, re.IGNORECASE)
-            if m_at: data['at'] = m_at.group(1)
 
-    m_cabo = re.search(r"(?:NÚMERO DO CABO|CABO|TRONCO)\s*[:\-]?\s*(\d+)", text, re.IGNORECASE)
-    if m_cabo: data['tronco'] = m_cabo.group(1)
+    # =========================================================
+    # LÓGICA ESTRITA PARA TRONCO
+    # =========================================================
+    # Puxa o número logo após as palavras NÚMERO DO CABO, CABO ou TRONCO.
+    # O [\s:\-#]* garante que ele ignore qualquer dois-pontos, espaço, traço ou hashtag antes do número.
+    m_cabo = re.search(r"(?:N[UÚuú]MERO DO CABO|CABO|TRONCO)[\s:\-#]*(\d+)", text, re.IGNORECASE)
+    if m_cabo:
+        data['tronco'] = m_cabo.group(1)
 
     m_dt_cria = re.search(r"(?:DATA|CRIACAO).*?(\d{2}/\d{2}/\d{4})", text, re.IGNORECASE)
     if m_dt_cria:
