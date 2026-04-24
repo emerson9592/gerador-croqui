@@ -214,7 +214,8 @@ def extract_fields(text, db):
     # =========================================================
     # Puxa o número logo após as palavras NÚMERO DO CABO, CABO ou TRONCO.
     # O [\s:\-#]* garante que ele ignore qualquer dois-pontos, espaço, traço ou hashtag antes do número.
-    m_cabo = re.search(r"(?:N[UÚuú]MERO DO CABO|CABO|TRONCO)[\s:\-#]*(\d+)", text, re.IGNORECASE)
+    m_cabo = re.search(r"(?:N[UÚuú]MERO DO CABO|TRONCO|CABO\s*[:#])[\s:;\-#]*(?:RESPOSTA[\s:;\-#]*)?(\d+)", text,
+                       re.IGNORECASE)
     if m_cabo:
         data['tronco'] = m_cabo.group(1)
 
