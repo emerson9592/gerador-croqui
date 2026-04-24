@@ -1,8 +1,9 @@
-from flask import Flask, render_template_string, request, send_from_directory, redirect, url_for, jsonify, session
+from flask import Flask, render_template_string, request, send_from_directory, redirect, url_for, jsonify, session, Blueprint, flash
 from reportlab.pdfgen import canvas
 from pdfrw import PdfReader, PdfWriter, PageMerge
 from pathlib import Path
 import re, random, os, json
+import xml.etree.ElementTree as ET
 import asyncio
 import textwrap
 from telethon import TelegramClient
@@ -23,6 +24,9 @@ GOOGLE_API_KEY = "AIzaSyCZXAgi1EQntbx7U3SyZI3I4xWj25E2sq0"
 TEMPLATE_PDF = "CROQUI.pdf"
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+# CONFIG KML
+KML_PATH = os.path.join('static', 'SMTXSP_Sites_2023104.kml')
 
 # SENHA PARA ACESSAR A PÁGINA /admin
 ADMIN_PASSWORD = "vivo"
@@ -62,13 +66,15 @@ def load_db():
     try:
         ref = firebase_db.reference('/')
         data = ref.get()
-        if not data: return {"tecnicos": {}, "veiculos": {}}
+        # Garante que as três categorias existem no banco
+        if not data: return {"tecnicos": {}, "veiculos": {}, "locais_kml": {}}
         if 'tecnicos' not in data: data['tecnicos'] = {}
         if 'veiculos' not in data: data['veiculos'] = {}
+        if 'locais_kml' not in data: data['locais_kml'] = {} # <- LINHA NOVA
         return data
     except Exception as e:
         print(f"Erro Firebase: {e}")
-        return {"tecnicos": {}, "veiculos": {}}
+        return {"tecnicos": {}, "veiculos": {}, "locais_kml": {}}
 
 
 def save_db(data):
@@ -300,7 +306,21 @@ def generate_pps(total_length, vt_each=15, extra_vt=0):
     usable = total_length - (2 * vt_each) - extra_vt
     if usable <= 0: return []
     num_spans = max(1, round(usable / 40))
-    return [round(usable / num_spans)] * num_spans
+
+    # 1. Divide o tamanho útil pelo número de vãos (ex: 100 // 3 = 33)
+    base_span = usable // num_spans
+
+    # 2. Pega exatamente os metros que "sobraram" (ex: 100 % 3 = 1 metro de resto)
+    resto = usable % num_spans
+
+    # 3. Cria a lista onde todos os vãos começam com o tamanho base
+    spans = [base_span] * num_spans
+
+    # 4. Distribui os metros que sobraram, somando +1m nos primeiros vãos
+    for i in range(resto):
+        spans[i] += 1
+
+    return spans
 
 
 def dividir_tratativas(material_lines):
@@ -509,6 +529,198 @@ def merge_overlay(overlay_path, out_path):
     PdfWriter(str(out_path), trailer=template).write()
 
 
+# ==========================================
+# FUNÇÕES E BLUEPRINT KML
+# ==========================================
+def remove_namespace(tree):
+    for elem in tree.iter():
+        if '}' in elem.tag:
+            elem.tag = elem.tag.split('}', 1)[1]
+    return tree
+
+def read_kml(file_path):
+    if not os.path.exists(file_path):
+        return []
+    tree = ET.parse(file_path)
+    tree = remove_namespace(tree)
+    root = tree.getroot()
+    placemarks = root.findall(".//Placemark")
+    places = []
+    for pm in placemarks:
+        name_tag = pm.find("name")
+        coords_tag = pm.find(".//coordinates")
+        if name_tag is not None and name_tag.text:
+            place_name = name_tag.text.strip()
+        else:
+            place_name = "Sem Nome"
+        if coords_tag is not None and coords_tag.text:
+            try:
+                lon, lat, *_ = coords_tag.text.strip().split(",")
+                places.append({
+                    "name": place_name,
+                    "lat": lat.strip(),
+                    "lon": lon.strip()
+                })
+            except ValueError:
+                print(f"Erro nas coordenadas de: {place_name}")
+    return sorted(places, key=lambda p: p["name"].lower())
+
+def add_placemark(file_path, name, lat, lon):
+    tree = ET.parse(file_path)
+    tree = remove_namespace(tree)
+    root = tree.getroot()
+    existing = root.findall(".//Placemark[name='%s']" % name)
+    if existing:
+        return False
+    pm = ET.Element("Placemark")
+    name_elem = ET.SubElement(pm, "name")
+    name_elem.text = name
+    point_elem = ET.SubElement(pm, "Point")
+    coords_elem = ET.SubElement(point_elem, "coordinates")
+    coords_elem.text = f"{lon},{lat},0"
+    root.append(pm)
+    tree.write(file_path, encoding='utf-8', xml_declaration=True)
+    return True
+
+def get_coordinates_from_link(link):
+    regex = r"https:\/\/(?:www\.)?google\.com\/maps\/(?:[\w\-]+\/\@|\?q=|\?ll=)(-?\d+\.\d+),(-?\d+\.\d+)"
+    match = re.search(regex, link)
+    if match:
+        return match.group(1), match.group(2)
+    return None, None
+
+mapa_bp = Blueprint('mapa', __name__, url_prefix='/mapa')
+
+
+# Função auxiliar para limpar nomes para o Firebase (O firebase não aceita pontos nas chaves)
+def clean_firebase_key(name):
+    return str(name).replace('.', '_').replace('#', '_').replace('$', '_').replace('[', '_').replace(']', '_')
+
+
+@mapa_bp.route('/')
+def index_mapa():
+    places_kml = read_kml(KML_PATH)
+    db = load_db()
+    locais_nuvem = db.get('locais_kml', {})
+
+    places_nuvem = []
+    deletados = set()
+    nomes_na_nuvem = set()
+
+    # 1. Filtra os sites do Firebase (Editados e Adicionados) e separa os Apagados
+    for safe_key, data in locais_nuvem.items():
+        if isinstance(data, dict):
+            nome_real = data.get('name', safe_key)  # Resgata o nome com os pontos originais
+            if data.get('deleted'):
+                deletados.add(nome_real)
+            else:
+                nomes_na_nuvem.add(nome_real)
+                places_nuvem.append({
+                    "name": nome_real,
+                    "lat": data.get('lat', ''),
+                    "lon": data.get('lon', '')
+                })
+
+    # 2. Junta as listas: Firebase tem prioridade, e sites marcados como deletados somem.
+    todos_places = places_nuvem.copy()
+    for p in places_kml:
+        nome_kml = p['name']
+        if nome_kml not in nomes_na_nuvem and nome_kml not in deletados:
+            todos_places.append(p)
+
+    # 3. Ordena por ordem alfabética
+    todos_places = sorted(todos_places, key=lambda p: str(p.get("name", "")).lower())
+
+    return render_template_string(KML_HTML, places=todos_places)
+
+
+@mapa_bp.route('/add', methods=['POST'])
+def add():
+    name = request.form['name'].upper().strip()
+    lat = request.form.get('lat', '').strip()
+    lon = request.form.get('lon', '').strip()
+
+    maps_link = request.form.get('mapsLink')
+    if maps_link:
+        lat, lon = get_coordinates_from_link(maps_link)
+        if not lat or not lon:
+            flash("Link do Google Maps inválido.", "error")
+            return redirect(url_for('mapa.index_mapa'))
+
+    if not lat or not lon:
+        flash("Preencha as coordenadas ou cole um link do Maps.", "error")
+        return redirect(url_for('mapa.index_mapa'))
+
+    safe_name = clean_firebase_key(name)
+    db = load_db()
+
+    # Se já existir e NÃO estiver deletado, avisa o erro
+    if safe_name in db['locais_kml'] and not db['locais_kml'][safe_name].get('deleted'):
+        flash("Já existe um local com esse nome.", "error")
+        return redirect(url_for('mapa.index_mapa'))
+
+    # Verifica no KML original também (caso não tenha sofrido override)
+    places_kml = read_kml(KML_PATH)
+    if any(p['name'] == name for p in places_kml) and safe_name not in db['locais_kml']:
+        flash("Já existe um local com esse nome no arquivo original.", "error")
+        return redirect(url_for('mapa.index_mapa'))
+
+    db['locais_kml'][safe_name] = {'name': name, 'lat': lat, 'lon': lon}
+    save_db(db)
+    flash("Local adicionado com sucesso!", "success")
+
+    return redirect(url_for('mapa.index_mapa'))
+
+
+@mapa_bp.route('/edit', methods=['POST'])
+def edit():
+    orig_name = request.form.get('original_name', '').strip()
+    new_name = request.form.get('name', '').upper().strip()
+    lat = request.form.get('lat', '').strip()
+    lon = request.form.get('lon', '').strip()
+
+    # Opcional: Permitir atualizar por link do maps também
+    maps_link = request.form.get('mapsLink')
+    if maps_link:
+        parsed_lat, parsed_lon = get_coordinates_from_link(maps_link)
+        if parsed_lat and parsed_lon:
+            lat, lon = parsed_lat, parsed_lon
+
+    safe_orig = clean_firebase_key(orig_name)
+    safe_new = clean_firebase_key(new_name)
+
+    db = load_db()
+
+    # Se o usuário mudou o nome do site, marca o nome antigo como deletado!
+    if safe_orig != safe_new:
+        db['locais_kml'][safe_orig] = {'deleted': True, 'name': orig_name}
+
+    # Salva os novos dados
+    db['locais_kml'][safe_new] = {'name': new_name, 'lat': lat, 'lon': lon}
+
+    save_db(db)
+    flash("Local atualizado com sucesso!", "success")
+    return redirect(url_for('mapa.index_mapa'))
+
+
+@mapa_bp.route('/delete', methods=['POST'])
+def delete():
+    name = request.form.get('name', '').strip()
+    safe_name = clean_firebase_key(name)
+
+    db = load_db()
+    # Em vez de apagar do firebase (o que faria o arquivo KML voltar a exibir ele),
+    # nós colocamos uma lápide marcando como deletado.
+    db['locais_kml'][safe_name] = {'deleted': True, 'name': name}
+    save_db(db)
+
+    flash(f"Local {name} apagado com sucesso!", "success")
+    return redirect(url_for('mapa.index_mapa'))
+
+# Registrando o blueprint
+app.register_blueprint(mapa_bp)
+
+
 # --- HTML TEMPLATES ---
 LOGIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>Login Administrativo</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"><style>
@@ -593,7 +805,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <input type="hidden" name="nome" value="{{ nome }}"><button type="submit" class="btn btn-del view-data">Excluir</button></form></td></tr>
 {% endfor %}</tbody></table></div></body></html>"""
 
-PASTE_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Colar Relatório</title><style>body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f5;padding:20px;text-align:center;margin:0}.container{width:90%;max-width:700px;margin:20px auto;background:#fff;padding:25px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1)}textarea{width:100%;height:300px;padding:15px;margin-bottom:20px;border:2px solid #ddd;border-radius:8px;font-size:16px;font-family:monospace;resize:vertical;background-color:#fafafa;box-sizing:border-box}textarea:focus{border-color:#007bff;outline:none;background:#fff}button{width:100%;padding:15px;font-size:18px;background:#007bff;color:#fff;border:none;border-radius:6px;cursor:pointer;transition:0.2s;font-weight:bold;margin-bottom:15px}button:hover{background:#0056b3}h2{color:#333;margin-bottom:10px}.manual-link{display:inline-block;margin-top:15px;color:#666;text-decoration:none;font-size:14px; margin-right:15px;}.manual-link:hover{text-decoration:underline;color:#007bff}.info{color:#666;font-size:14px;margin-bottom:20px}</style></head><body><div class="container"><h2>Gerador de Croquis</h2><p class="info">Cole abaixo o texto do WhatsApp ou do Sistema <strong>GENESIS</strong>.</p><form method="post" action="/preencher"><textarea name="raw_text" placeholder="Cole aqui..."></textarea><br><button type="submit">Processar Texto &raquo;</button></form><div><a href="/form" class="manual-link">Preencher manualmente</a> | <a href="/admin" class="manual-link" style="color:#28a745;">☁️ Painel de Técnicos</a></div></div></body></html>"""
+PASTE_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Colar Relatório</title><style>body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f5;padding:20px;text-align:center;margin:0}.container{width:90%;max-width:700px;margin:20px auto;background:#fff;padding:25px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1)}textarea{width:100%;height:300px;padding:15px;margin-bottom:20px;border:2px solid #ddd;border-radius:8px;font-size:16px;font-family:monospace;resize:vertical;background-color:#fafafa;box-sizing:border-box}textarea:focus{border-color:#007bff;outline:none;background:#fff}button{width:100%;padding:15px;font-size:18px;background:#007bff;color:#fff;border:none;border-radius:6px;cursor:pointer;transition:0.2s;font-weight:bold;margin-bottom:15px}button:hover{background:#0056b3}h2{color:#333;margin-bottom:10px}.manual-link{display:inline-block;margin-top:15px;color:#666;text-decoration:none;font-size:14px; margin-right:15px;}.manual-link:hover{text-decoration:underline;color:#007bff}.info{color:#666;font-size:14px;margin-bottom:20px}</style></head><body><div class="container"><h2>Gerador de Croquis</h2><p class="info">Cole abaixo o texto do WhatsApp ou do Sistema <strong>GENESIS</strong>.</p><form method="post" action="/preencher"><textarea name="raw_text" placeholder="Cole aqui..."></textarea><br><button type="submit">Processar Texto &raquo;</button></form><div><a href="/form" class="manual-link">Preencher manualmente</a> | <a href="/admin" class="manual-link" style="color:#28a745;">☁️ Painel de Técnicos</a> | <a href="/mapa/" target="_blank" class="manual-link" style="color:#17a2b8;">🗺️ Localizações de Sites</a></div></div></body></html>"""
 
 FORM_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Confirmar Dados - Gerador de Croqui</title>
 <style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;padding:10px;margin:0} .container{width:95%;max-width:900px;margin:10px auto;background:#fff;padding:20px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.05);box-sizing:border-box} input,textarea{width:100%;padding:12px;margin-bottom:15px;border:1px solid #ccc;border-radius:5px;font-size:16px;box-sizing:border-box} textarea{height:150px;font-family:monospace} button{padding:15px;font-size:16px;border:none;border-radius:5px;cursor:pointer;font-weight:bold;color:#fff;width:100%;margin-bottom:10px} #btn-validate{background:#28a745} #btn-validate:hover{background:#218838} h3{margin-top:20px;border-bottom:2px solid #eee;padding-bottom:10px;color:#444;font-size:18px} label{font-weight:600;font-size:14px;color:#555;display:block;margin-bottom:5px} .error{border:2px solid #dc3545!important;background:#fff0f0} .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:15px} .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px} @media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr;gap:10px} .container{padding:15px;width:100%}} .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:999;display:none;justify-content:center;align-items:center} .modal-content{background:#fff;padding:25px;border-radius:12px;width:90%;max-width:400px;box-shadow:0 5px 15px rgba(0,0,0,0.3)} .modal-title{font-size:1.2rem;font-weight:bold;margin-bottom:15px;color:#dc3545} .modal-list{margin-bottom:20px;padding-left:20px;color:#333} .modal-actions{display:flex;flex-direction:column;gap:10px} #btn-modal-back{background:#6c757d} #btn-modal-proceed{background:#007bff} .tag{display:inline-block;background:#e9ecef;color:#333;padding:8px 14px;border-radius:20px;margin:4px;font-size:14px;border:1px solid #ddd} .tag span{margin-left:10px;cursor:pointer;color:#dc3545;font-weight:bold} #exec-list{max-height:200px;overflow-y:auto;border:1px solid #eee;border-radius:4px;margin-bottom:10px} #exec-list div{padding:12px;border-bottom:1px solid #f0f0f0;cursor:pointer;display:flex;justify-content:space-between} #exec-list div:hover{background:#f8f9fa;color:#007bff} .area-badge{color:#999;font-size:0.9em} .back-btn{background:#007bff;text-decoration:none;display:block;color:white;padding:15px;border-radius:5px;text-align:center;margin-bottom:10px;font-weight:bold}</style></head>
@@ -607,6 +819,190 @@ FORM_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="view
 <h3>Executantes</h3><div id="exec-tags" style="margin-bottom:10px"></div><input id="exec-input" placeholder="Buscar técnico na nuvem..."><div id="exec-list"></div><input type="hidden" name="executantes" id="exec-hidden">
 <h3>Tratativas</h3><textarea name="itens">{{ itens_texto }}</textarea><div style="margin-top:30px"><button id="btn-validate" type="submit">Gerar PDF Final</button><a href="/" class="back-btn">Voltar para Início</a></div></form></div>
 <script>document.addEventListener('DOMContentLoaded', () => { let tecnicos = []; let selecionados = {{ executantes_list|tojson }}; let veiculosMap = {{ veiculos_map|tojson }}; fetch('/tecnicos').then(r => r.json()).then(d => { tecnicos = d; console.log("Base de técnicos carregada!"); }); const form = document.querySelector('form'); const input = document.getElementById('exec-input'); const list = document.getElementById('exec-list'); const hidden = document.getElementById('exec-hidden'); const tagsBox = document.getElementById('exec-tags'); const inputVeiculo = document.querySelector('input[name="veiculo"]'); const modalOverlay = document.getElementById('modal-overlay'); const modalList = document.getElementById('modal-list'); const btnValidate = document.getElementById('btn-validate'); const btnModalBack = document.getElementById('btn-modal-back'); const btnModalProceed = document.getElementById('btn-modal-proceed'); function atualizarHidden() { hidden.value = selecionados.join(', '); if (selecionados.length > 0) input.classList.remove('error'); } function renderTags() { tagsBox.innerHTML = ''; selecionados.forEach(nome => { const tag = document.createElement('div'); tag.className = 'tag'; tag.innerHTML = `${nome} <span>&times;</span>`; tag.querySelector('span').onclick = () => { selecionados = selecionados.filter(n => n !== nome); atualizarHidden(); renderTags(); }; tagsBox.appendChild(tag); }); } renderTags(); atualizarHidden(); input.addEventListener('input', () => { const v = input.value.toLowerCase(); list.innerHTML = ''; if (!v) return; input.classList.remove('error'); tecnicos.filter(t => t.name.toLowerCase().includes(v) && !selecionados.includes(t.name)).slice(0, 8).forEach(t => { const div = document.createElement('div'); div.innerHTML = `<span>${t.name}</span> <span class="area-badge">Área ${t.area}</span>`; div.onclick = () => { selecionados.push(t.name); const nomeChave = t.name.toLowerCase(); if (veiculosMap[nomeChave] && inputVeiculo.value === "") { inputVeiculo.value = veiculosMap[nomeChave]; inputVeiculo.classList.remove('error'); } atualizarHidden(); renderTags(); input.value = ''; list.innerHTML = ''; }; list.appendChild(div); }); }); document.querySelectorAll('input, textarea').forEach(el => { el.addEventListener('input', function() { if (this.value.trim() !== '') this.classList.remove('error'); }); }); btnValidate.addEventListener('click', (e) => { e.preventDefault(); let missing = []; const fields = [ {name: 'ta', label: 'TA'}, {name: 'codigo_obra', label: 'Código Obra'}, {name: 'causa', label: 'Causa'}, {name: 'endereco', label: 'Endereço'}, {name: 'localidade', label: 'Localidade'}, {name: 'tronco', label: 'Tronco'}, {name: 'veiculo', label: 'Veículo'}, {name: 'supervisor', label: 'Supervisor'}, {name: 'data', label: 'Data'}, {name: 'itens', label: 'Tratativas'} ]; fields.forEach(f => { const el = document.querySelector(`[name="${f.name}"]`); if (!el.value.trim()) { el.classList.add('error'); missing.push(f.label); } }); if (selecionados.length === 0) { input.classList.add('error'); missing.push('Executantes'); } if (missing.length > 0) { modalList.innerHTML = missing.map(i => `<li>${i}</li>`).join(''); modalOverlay.style.display = 'flex'; } else { form.submit(); } }); btnModalBack.addEventListener('click', () => { modalOverlay.style.display = 'none'; }); btnModalProceed.addEventListener('click', () => { modalOverlay.style.display = 'none'; form.submit(); }); });</script></body></html>"""
+
+KML_HTML = """<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciador de KML</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f4f4f9; color: #333; padding: 20px; margin: 0; }
+        .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h1, h2, h3 { color: #2c3e50; margin-top: 0; }
+
+        .alert { padding: 12px; margin-bottom: 20px; border-radius: 5px; font-weight: bold; }
+        .alert-success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .alert-error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #2c3e50; color: white; position: sticky; top: 0; }
+        tr:hover { background-color: #f5f5f5; }
+        .map-link { color: #007bff; text-decoration: none; font-weight: bold; display: block; width: 100%; }
+        .map-link:hover { text-decoration: underline; color: #0056b3; }
+
+        .search-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; margin-top: 10px;}
+        .search-input { padding: 10px 15px; border: 1px solid #ccc; border-radius: 20px; width: 100%; max-width: 350px; outline: none; transition: 0.3s; font-size: 14px;}
+        .search-input:focus { border-color: #007bff; box-shadow: 0 0 5px rgba(0,123,255,0.3); }
+
+        .btn-add-site { background-color: #f8f9fa; border: 1px solid #ced4da; color: #495057; font-size: 15px; font-weight: bold; padding: 8px 15px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s ease-in-out; }
+        .btn-add-site:hover { background-color: #e2e6ea; color: #212529; border-color: #adb5bd; }
+        .btn-add-site .gear-icon { font-size: 18px; transition: transform 0.3s; }
+        .btn-add-site:hover .gear-icon { transform: rotate(90deg); }
+
+        /* Botões de Ação na Tabela */
+        .btn-icon { background: none; border: none; cursor: pointer; font-size: 18px; padding: 5px; transition: 0.2s; border-radius: 4px;}
+        .btn-icon:hover { background-color: #e9ecef; transform: scale(1.1); }
+
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; display: none; justify-content: center; align-items: center; }
+        .modal-content { background: #fff; padding: 25px; border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); position: relative; }
+        .close-btn { position: absolute; top: 15px; right: 20px; font-size: 24px; cursor: pointer; color: #888; font-weight: bold; }
+        .close-btn:hover { color: #dc3545; }
+
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px;}
+        input[type="text"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        .btn { background-color: #28a745; color: white; padding: 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; width: 100%; margin-top: 10px;}
+        .btn:hover { background-color: #218838; }
+        .btn-edit-save { background-color: #ffc107; color: #212529; }
+        .btn-edit-save:hover { background-color: #e0a800; }
+
+        .table-container { max-height: 60vh; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;} 
+    </style>
+</head>
+<body>
+
+<div id="addModal" class="modal-overlay">
+    <div class="modal-content">
+        <span class="close-btn" id="closeAddModal">×</span>
+        <h3 style="margin-top:0; color:#444; border-bottom: 2px solid #eee; padding-bottom: 10px;">Adicionar Novo Local</h3>
+        <form action="{{ url_for('mapa.add') }}" method="POST">
+            <div class="form-group"><label>Nome do Local:</label><input type="text" name="name" required placeholder="Ex: SITE_SP_01"></div>
+            <div style="display: flex; gap: 10px;">
+                <div class="form-group" style="flex: 1;"><label>Latitude:</label><input type="text" name="lat"></div>
+                <div class="form-group" style="flex: 1;"><label>Longitude:</label><input type="text" name="lon"></div>
+            </div>
+            <p style="text-align: center; font-weight: bold; margin: 5px 0; color: #777;">OU</p>
+            <div class="form-group"><label>Link do Google Maps:</label><input type="text" name="mapsLink" placeholder="Cole o link do mapa aqui..."></div>
+            <button type="submit" class="btn">+ Salvar</button>
+        </form>
+    </div>
+</div>
+
+<div id="editModal" class="modal-overlay">
+    <div class="modal-content">
+        <span class="close-btn" id="closeEditModal">×</span>
+        <h3 style="margin-top:0; color:#444; border-bottom: 2px solid #eee; padding-bottom: 10px;">Editar Local</h3>
+        <form action="{{ url_for('mapa.edit') }}" method="POST">
+            <input type="hidden" name="original_name" id="editOriginalName">
+            <div class="form-group"><label>Nome do Local:</label><input type="text" name="name" id="editName" required></div>
+            <div style="display: flex; gap: 10px;">
+                <div class="form-group" style="flex: 1;"><label>Latitude:</label><input type="text" name="lat" id="editLat"></div>
+                <div class="form-group" style="flex: 1;"><label>Longitude:</label><input type="text" name="lon" id="editLon"></div>
+            </div>
+            <p style="text-align: center; font-weight: bold; margin: 5px 0; color: #777;">OU</p>
+            <div class="form-group"><label>Link do Google Maps (para atualizar coords):</label><input type="text" name="mapsLink" placeholder="Cole o novo link do mapa..."></div>
+            <button type="submit" class="btn btn-edit-save">Salvar Alterações</button>
+        </form>
+    </div>
+</div>
+
+<div class="container">
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #eee; padding-bottom:15px; margin-bottom:20px;">
+        <div style="display:flex; align-items:center; gap: 20px;">
+            <h2 style="margin:0;">🗺️ Locais KML</h2>
+            <button id="openAddModal" class="btn-add-site" title="Adicionar Novo Local"><span class="gear-icon">⚙️</span> Adicionar novo site</button>
+        </div>
+        <a href="/" style="text-decoration:none; color:#007bff; font-weight: bold;">« Voltar ao Início</a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="search-container">
+        <h3 style="color:#444; margin:0;">Base de Dados</h3>
+        <input type="text" id="searchInput" class="search-input" placeholder="🔍 Buscar local pelo nome...">
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Nome do Site</th>
+                    <th style="text-align: right; width: 100px;">Ações</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                {% for place in places %}
+                <tr>
+                    <td>
+                        <a href="https://www.google.com/maps?q={{ place.lat }},{{ place.lon }}" target="_blank" class="map-link" title="Abrir no Google Maps">
+                            {{ place.name }}
+                        </a>
+                    </td>
+                    <td style="text-align: right; white-space: nowrap;">
+                        <button class="btn-icon open-edit" data-name="{{ place.name }}" data-lat="{{ place.lat }}" data-lon="{{ place.lon }}" title="Editar Site">✏️</button>
+
+                        <form action="{{ url_for('mapa.delete') }}" method="POST" style="display:inline;" onsubmit="return confirm('Tem certeza que deseja apagar o site {{ place.name }}?');">
+                            <input type="hidden" name="name" value="{{ place.name }}">
+                            <button type="submit" class="btn-icon" title="Apagar Site">🗑️</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="2" style="text-align: center;">Nenhum local encontrado.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // LÓGICA DO MODAL DE ADICIONAR
+    const addModal = document.getElementById("addModal");
+    document.getElementById("openAddModal").onclick = () => addModal.style.display = "flex";
+    document.getElementById("closeAddModal").onclick = () => addModal.style.display = "none";
+
+    // LÓGICA DO MODAL DE EDITAR
+    const editModal = document.getElementById("editModal");
+    document.getElementById("closeEditModal").onclick = () => editModal.style.display = "none";
+
+    // Pega todos os botões de editar e joga os dados pro Modal
+    document.querySelectorAll('.open-edit').forEach(btn => {
+        btn.onclick = function() {
+            document.getElementById('editOriginalName').value = this.dataset.name;
+            document.getElementById('editName').value = this.dataset.name;
+            document.getElementById('editLat').value = this.dataset.lat;
+            document.getElementById('editLon').value = this.dataset.lon;
+            editModal.style.display = "flex";
+        }
+    });
+
+    // Fechar modais clicando fora
+    window.onclick = function(event) {
+        if (event.target == addModal) addModal.style.display = "none";
+        if (event.target == editModal) editModal.style.display = "none";
+    }
+
+    // LÓGICA DA BARRA DE PESQUISA
+    document.getElementById('searchInput').addEventListener('input', function() {
+        let filter = this.value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim(); 
+        let rows = document.querySelectorAll('#tableBody tr');
+        rows.forEach(row => {
+            let nomeSite = row.cells[0].textContent.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+            row.style.display = nomeSite.includes(filter) ? '' : 'none';
+        });
+    });
+</script>
+
+</body>
+</html>"""
 
 
 # --- ROTAS NOVAS (ADMINISTRAÇÃO FIREBASE) ---
