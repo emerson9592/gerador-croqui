@@ -1,4 +1,5 @@
-from flask import Flask, render_template_string, request, send_from_directory, redirect, url_for, jsonify, session, Blueprint, flash
+from flask import Flask, render_template_string, request, send_from_directory, redirect, url_for, jsonify, session, \
+    Blueprint, flash
 from reportlab.pdfgen import canvas
 from pdfrw import PdfReader, PdfWriter, PageMerge
 from pathlib import Path
@@ -67,10 +68,10 @@ def load_db():
         ref = firebase_db.reference('/')
         data = ref.get()
         # Garante que as três categorias existem no banco
-        if not data: return {"tecnicos": {}, "veiculos": {}, "Localizações de Sites": {}}
+        if not data: return {"tecnicos": {}, "veiculos": {}, "locais_kml": {}}
         if 'tecnicos' not in data: data['tecnicos'] = {}
         if 'veiculos' not in data: data['veiculos'] = {}
-        if 'locais_kml' not in data: data['locais_kml'] = {} # <- LINHA NOVA
+        if 'locais_kml' not in data: data['locais_kml'] = {}
         return data
     except Exception as e:
         print(f"Erro Firebase: {e}")
@@ -199,21 +200,11 @@ def extract_fields(text, db):
     m_sgm = re.search(r"(?:SGM|Obra)[\s:\-]*(\d{8,})", text, re.IGNORECASE)
     if m_sgm: data['codigo_obra'] = m_sgm.group(1)
 
-    # =========================================================
-    # LÓGICA ESTRITA PARA ES E AT (Sem buscas genéricas)
-    # =========================================================
-    # Busca estritamente pelas palavras SIGLA ou RESPOSTA.
-    # Ignora espaços, dois-pontos ou ponto-e-vírgula logo após, e pega o padrão XXX.YY
     m_sigla = re.search(r"(?:SIGLA|RESPOSTA)[\s:;\-]*([A-Z]{3})[\.\-\s]+([A-Z0-9]{2})\b", text, re.IGNORECASE)
     if m_sigla:
         data['es'] = m_sigla.group(1).upper()
         data['at'] = m_sigla.group(2).upper()
 
-    # =========================================================
-    # LÓGICA ESTRITA PARA TRONCO
-    # =========================================================
-    # Puxa o número logo após as palavras NÚMERO DO CABO, CABO ou TRONCO.
-    # O [\s:\-#]* garante que ele ignore qualquer dois-pontos, espaço, traço ou hashtag antes do número.
     m_cabo = re.search(r"(?:N[UÚuú]MERO DO CABO|TRONCO|CABO\s*[:#])[\s:;\-#]*(?:RESPOSTA[\s:;\-#]*)?(\d+)", text,
                        re.IGNORECASE)
     if m_cabo:
@@ -247,7 +238,7 @@ def extract_fields(text, db):
             if not data['endereco'] or len(data['endereco']) < 5: data['endereco'] = end_gps
             if not data['localidade'] and loc_gps: data['localidade'] = loc_gps
 
-    data['supervisor'] = "Wellington"
+    data['supervisor'] = ""
     exec_list = []
     text_lower = text.lower()
     found = set()
@@ -265,9 +256,14 @@ def extract_fields(text, db):
 
     data['executantes_parsed'] = exec_list
 
-    if not data['veiculo'] and exec_list:
-        p = exec_list[0]['name']
-        if p in db['veiculos']: data['veiculo'] = db['veiculos'][p]
+    if exec_list:
+        p = exec_list[0]['name'].lower()
+        if not data['veiculo'] and p in db['veiculos']:
+            data['veiculo'] = db['veiculos'][p]
+
+        info_tec = db['tecnicos'].get(p, {})
+        if info_tec.get('supervisor'):
+            data['supervisor'] = info_tec['supervisor']
 
     m_gen = re.search(r"Ação de Recuperação:[\s\S]*?(?=\nMaterial|\nData|\Z|OBRA|SGM|Causa)", text, re.IGNORECASE)
     if m_gen:
@@ -314,16 +310,10 @@ def generate_pps(total_length, vt_each=15, extra_vt=0):
     if usable <= 0: return []
     num_spans = max(1, round(usable / 40))
 
-    # 1. Divide o tamanho útil pelo número de vãos (ex: 100 // 3 = 33)
     base_span = usable // num_spans
-
-    # 2. Pega exatamente os metros que "sobraram" (ex: 100 % 3 = 1 metro de resto)
     resto = usable % num_spans
-
-    # 3. Cria a lista onde todos os vãos começam com o tamanho base
     spans = [base_span] * num_spans
 
-    # 4. Distribui os metros que sobraram, somando +1m nos primeiros vãos
     for i in range(resto):
         spans[i] += 1
 
@@ -436,7 +426,6 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path, vts_extra=None)
         c.setFont("Helvetica", 8)
         for i, l in enumerate(lines): c.drawString(x + 5, y + h - 20 - (i * 10), l)
 
-    # --- DETECTAR SUBTERRÂNEO AQUI ---
     joined_materials = " ".join(materials_raw).lower()
     is_subt = "subterraneo" in joined_materials or "subterrâneo" in joined_materials
     pfx = "CS" if is_subt else "XC"
@@ -447,7 +436,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path, vts_extra=None)
         c.circle(lx, dy, 4, fill=1)
         c.drawString(lx - 12, dy - 20, "Início")
         c.circle(mid, dy, 4, fill=1)
-        c.drawString(mid - 8, dy - 20, pfx)  # Aplica o prefixo dinâmico
+        c.drawString(mid - 8, dy - 20, pfx)
         c.circle(rx, dy, 4, fill=1)
         c.drawString(rx - 8, dy - 20, "Fim")
 
@@ -480,7 +469,7 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path, vts_extra=None)
         c.circle(cx, dy, 4, fill=1)
         has_cb = sum(pp_list) > 0
         if has_cb: c.drawString(cx - 10, dy + 15, "VT 15m")
-        c.drawString(cx - 10, dy - 20, f"{pfx} Inicial")  # Aplica o prefixo dinâmico
+        c.drawString(cx - 10, dy - 20, f"{pfx} Inicial")
 
         for i, dist in enumerate(pp_list):
             nx = cx + step
@@ -488,13 +477,12 @@ def create_overlay(parsed, materials_raw, pp_list, overlay_path, vts_extra=None)
             if dist > 0 and has_cb: c.drawString(mid - 15, dy + 5, f"PP {dist}m")
             c.circle(nx, dy, 4, fill=1)
             if i == len(pp_list) - 1:
-                c.drawString(nx - 10, dy - 20, f"{pfx} Final")  # Aplica o prefixo dinâmico
+                c.drawString(nx - 10, dy - 20, f"{pfx} Final")
                 if has_cb: c.drawString(nx - 10, dy + 15, "VT 15m")
             else:
-                c.drawString(nx - 8, dy - 20, pfx)  # Aplica o prefixo dinâmico
+                c.drawString(nx - 8, dy - 20, pfx)
             cx = nx
 
-    # --- DESENHO DAS VTs SOBRESSALENTES ---
     if vts_extra:
         for vt in vts_extra:
             xc_idx = vt['xc']
@@ -545,6 +533,7 @@ def remove_namespace(tree):
             elem.tag = elem.tag.split('}', 1)[1]
     return tree
 
+
 def read_kml(file_path):
     if not os.path.exists(file_path):
         return []
@@ -572,6 +561,7 @@ def read_kml(file_path):
                 print(f"Erro nas coordenadas de: {place_name}")
     return sorted(places, key=lambda p: p["name"].lower())
 
+
 def add_placemark(file_path, name, lat, lon):
     tree = ET.parse(file_path)
     tree = remove_namespace(tree)
@@ -589,12 +579,14 @@ def add_placemark(file_path, name, lat, lon):
     tree.write(file_path, encoding='utf-8', xml_declaration=True)
     return True
 
+
 def get_coordinates_from_link(link):
     regex = r"https:\/\/(?:www\.)?google\.com\/maps\/(?:[\w\-]+\/\@|\?q=|\?ll=)(-?\d+\.\d+),(-?\d+\.\d+)"
     match = re.search(regex, link)
     if match:
         return match.group(1), match.group(2)
     return None, None
+
 
 mapa_bp = Blueprint('mapa', __name__, url_prefix='/mapa')
 
@@ -614,10 +606,9 @@ def index_mapa():
     deletados = set()
     nomes_na_nuvem = set()
 
-    # 1. Filtra os sites do Firebase (Editados e Adicionados) e separa os Apagados
     for safe_key, data in locais_nuvem.items():
         if isinstance(data, dict):
-            nome_real = data.get('name', safe_key)  # Resgata o nome com os pontos originais
+            nome_real = data.get('name', safe_key)
             if data.get('deleted'):
                 deletados.add(nome_real)
             else:
@@ -628,14 +619,12 @@ def index_mapa():
                     "lon": data.get('lon', '')
                 })
 
-    # 2. Junta as listas: Firebase tem prioridade, e sites marcados como deletados somem.
     todos_places = places_nuvem.copy()
     for p in places_kml:
         nome_kml = p['name']
         if nome_kml not in nomes_na_nuvem and nome_kml not in deletados:
             todos_places.append(p)
 
-    # 3. Ordena por ordem alfabética
     todos_places = sorted(todos_places, key=lambda p: str(p.get("name", "")).lower())
 
     return render_template_string(KML_HTML, places=todos_places)
@@ -661,12 +650,10 @@ def add():
     safe_name = clean_firebase_key(name)
     db = load_db()
 
-    # Se já existir e NÃO estiver deletado, avisa o erro
     if safe_name in db['locais_kml'] and not db['locais_kml'][safe_name].get('deleted'):
         flash("Já existe um local com esse nome.", "error")
         return redirect(url_for('mapa.index_mapa'))
 
-    # Verifica no KML original também (caso não tenha sofrido override)
     places_kml = read_kml(KML_PATH)
     if any(p['name'] == name for p in places_kml) and safe_name not in db['locais_kml']:
         flash("Já existe um local com esse nome no arquivo original.", "error")
@@ -686,7 +673,6 @@ def edit():
     lat = request.form.get('lat', '').strip()
     lon = request.form.get('lon', '').strip()
 
-    # Opcional: Permitir atualizar por link do maps também
     maps_link = request.form.get('mapsLink')
     if maps_link:
         parsed_lat, parsed_lon = get_coordinates_from_link(maps_link)
@@ -698,11 +684,9 @@ def edit():
 
     db = load_db()
 
-    # Se o usuário mudou o nome do site, marca o nome antigo como deletado!
     if safe_orig != safe_new:
         db['locais_kml'][safe_orig] = {'deleted': True, 'name': orig_name}
 
-    # Salva os novos dados
     db['locais_kml'][safe_new] = {'name': new_name, 'lat': lat, 'lon': lon}
 
     save_db(db)
@@ -716,17 +700,15 @@ def delete():
     safe_name = clean_firebase_key(name)
 
     db = load_db()
-    # Em vez de apagar do firebase (o que faria o arquivo KML voltar a exibir ele),
-    # nós colocamos uma lápide marcando como deletado.
     db['locais_kml'][safe_name] = {'deleted': True, 'name': name}
     save_db(db)
 
     flash(f"Local {name} apagado com sucesso!", "success")
     return redirect(url_for('mapa.index_mapa'))
 
+
 # Registrando o blueprint
 app.register_blueprint(mapa_bp)
-
 
 # --- HTML TEMPLATES ---
 LOGIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>Login Administrativo</title>
@@ -738,12 +720,12 @@ button{padding:12px; width:100%; background:#007bff; color:white; border:none; b
 </style></head><body><div class="box"><h2>Acesso Restrito</h2>
 {% if erro %}<p style="color:#dc3545; font-weight:bold;">Senha Incorreta</p>{% endif %}
 <form method="post"><input type="password" name="senha" placeholder="Digite a senha..." required><button type="submit">Entrar</button></form>
-<br><a href="/" style="color:#666; text-decoration:none;">&laquo; Voltar ao Gerador</a></div></body></html>"""
+<br><a href="/" style="color:#666; text-decoration:none;">« Voltar ao Gerador</a></div></body></html>"""
 
 ADMIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>Painel Administrativo</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"><style>
 body{font-family:'Segoe UI',sans-serif; background:#f0f2f5; padding:20px; margin:0;}
-.container{max-width:1000px; margin:auto; background:#fff; padding:25px; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,0.1);}
+.container{max-width:1100px; margin:auto; background:#fff; padding:25px; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,0.1);}
 h2 {color: #333; margin-top:0;}
 table{width:100%; border-collapse:collapse; margin-top:10px;}
 th, td{border:1px solid #eee; padding:12px; text-align:left; font-size:14px; vertical-align: middle;}
@@ -755,7 +737,7 @@ input.edit-input{padding:8px; border:1px solid #ccc; border-radius:4px; width:10
 .btn-save{background:#28a745; color:#fff;}
 .btn-cancel{background:#6c757d; color:#fff;}
 .btn-del{background:#dc3545; color:#fff;}
-.form-grid{display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap:15px;}
+.form-grid{display:grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap:15px;}
 .actions-cell {white-space: nowrap; width: 150px;}
 .search-container { display: flex; justify-content: space-between; align-items: center; margin-top: 30px; margin-bottom: 10px; }
 .search-input { padding: 10px 15px; border: 1px solid #ccc; border-radius: 20px; width: 100%; max-width: 300px; outline: none; transition: 0.3s; font-size: 14px;}
@@ -789,32 +771,34 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script></head><body><div class="container">
 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #eee; padding-bottom:15px; margin-bottom:20px;">
-<h2>⚙️ Gerenciar Técnicos na Nuvem</h2><div><a href="/" style="text-decoration:none; color:#007bff; margin-right:15px;">&laquo; Gerador</a> <a href="/logout" style="text-decoration:none; color:#dc3545;">Sair</a></div></div>
+<h2>⚙️ Gerenciar Técnicos na Nuvem</h2><div><a href="/" style="text-decoration:none; color:#007bff; margin-right:15px;">« Gerador</a> <a href="/logout" style="text-decoration:none; color:#dc3545;">Sair</a></div></div>
 <form method="post" style="background:#f8f9fa; padding:20px; border-radius:8px; border:1px solid #eee;">
 <h3 style="margin-top:0; color:#444; margin-bottom:15px;">Adicionar Novo Técnico</h3><input type="hidden" name="action" value="add">
 <div class="form-grid"><input type="text" name="nome" class="edit-input" placeholder="Nome Completo" required style="padding:12px;">
 <input type="text" name="re" class="edit-input" placeholder="RE" style="padding:12px;">
 <input type="text" name="area" class="edit-input" placeholder="Área" style="padding:12px;">
-<input type="text" name="placa" class="edit-input" placeholder="Placa" style="padding:12px;"></div>
+<input type="text" name="placa" class="edit-input" placeholder="Placa" style="padding:12px;">
+<input type="text" name="supervisor" class="edit-input" placeholder="Supervisor" style="padding:12px;"></div>
 <button type="submit" class="btn btn-add">+ Salvar Técnico</button></form>
 <div class="search-container"><h3 style="color:#444; margin:0;">Técnicos Cadastrados</h3>
 <input type="text" id="search-admin" class="search-input" placeholder="🔍 Buscar por nome, RE ou placa..."></div>
-<table><thead><tr><th>Nome</th><th>RE</th><th>Área</th><th>Veículo</th><th style="text-align:center;">Ações</th></tr></thead><tbody>
+<table><thead><tr><th>Nome</th><th>RE</th><th>Área</th><th>Veículo</th><th>Supervisor</th><th style="text-align:center;">Ações</th></tr></thead><tbody>
 {% for nome, info in tecnicos.items() %}<tr id="row-{{ loop.index }}">
 <form method="post"><input type="hidden" name="action" value="edit"><input type="hidden" name="original_nome" value="{{ nome }}">
 <td><span class="view-data">{{ nome.title() }}</span><input class="edit-input" name="new_nome" value="{{ nome.title() }}" style="display:none;" required></td>
 <td><span class="view-data">{{ info.re }}</span><input class="edit-input" name="re" value="{{ info.re }}" style="display:none;"></td>
 <td><span class="view-data">{{ info.area }}</span><input class="edit-input" name="area" value="{{ info.area }}" style="display:none;"></td>
 <td><span class="view-data">{{ veiculos.get(nome, '-') }}</span><input class="edit-input" name="placa" value="{{ veiculos.get(nome, '') }}" style="display:none;"></td>
+<td><span class="view-data">{{ info.supervisor|default('-', true) }}</span><input class="edit-input" name="supervisor" value="{{ info.supervisor|default('', true) }}" style="display:none;"></td>
 <td class="actions-cell" style="text-align:center;"><button type="button" class="btn btn-edit" onclick="toggleEdit('row-{{ loop.index }}')">Editar</button>
 <button type="submit" class="btn btn-save" style="display:none;">Salvar</button><button type="button" class="btn btn-cancel" style="display:none;" onclick="toggleEdit('row-{{ loop.index }}')">Cancelar</button></td></form>
 <td style="border-left:none; text-align:center; width: 60px;"><form method="post" style="display:inline;"><input type="hidden" name="action" value="delete">
 <input type="hidden" name="nome" value="{{ nome }}"><button type="submit" class="btn btn-del view-data">Excluir</button></form></td></tr>
 {% endfor %}</tbody></table></div></body></html>"""
 
-PASTE_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Colar Relatório</title><style>body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f5;padding:20px;text-align:center;margin:0}.container{width:90%;max-width:700px;margin:20px auto;background:#fff;padding:25px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1)}textarea{width:100%;height:300px;padding:15px;margin-bottom:20px;border:2px solid #ddd;border-radius:8px;font-size:16px;font-family:monospace;resize:vertical;background-color:#fafafa;box-sizing:border-box}textarea:focus{border-color:#007bff;outline:none;background:#fff}button{width:100%;padding:15px;font-size:18px;background:#007bff;color:#fff;border:none;border-radius:6px;cursor:pointer;transition:0.2s;font-weight:bold;margin-bottom:15px}button:hover{background:#0056b3}h2{color:#333;margin-bottom:10px}.manual-link{display:inline-block;margin-top:15px;color:#666;text-decoration:none;font-size:14px; margin-right:15px;}.manual-link:hover{text-decoration:underline;color:#007bff}.info{color:#666;font-size:14px;margin-bottom:20px}</style></head><body><div class="container"><h2>Gerador de Croquis</h2><p class="info">Cole abaixo o encerramento do Sistema <strong>GENESIS</strong>.</p><form method="post" action="/preencher"><textarea name="raw_text" placeholder="Cole aqui..."></textarea><br><button type="submit">Processar Texto &raquo;</button></form><div><a href="/form" class="manual-link">Preencher manualmente</a> | <a href="/admin" class="manual-link" style="color:#28a745;">☁️ Painel de Técnicos</a> | <a href="/mapa/" target="_blank" class="manual-link" style="color:#17a2b8;">🗺️ Localizações de Sites</a></div></div></body></html>"""
+PASTE_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Colar Relatório</title><style>body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f0f2f5;padding:20px;text-align:center;margin:0}.container{width:90%;max-width:700px;margin:20px auto;background:#fff;padding:25px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1)}textarea{width:100%;height:300px;padding:15px;margin-bottom:20px;border:2px solid #ddd;border-radius:8px;font-size:16px;font-family:monospace;resize:vertical;background-color:#fafafa;box-sizing:border-box}textarea:focus{border-color:#007bff;outline:none;background:#fff}button{width:100%;padding:15px;font-size:18px;background:#007bff;color:#fff;border:none;border-radius:6px;cursor:pointer;transition:0.2s;font-weight:bold;margin-bottom:15px}button:hover{background:#0056b3}h2{color:#333;margin-bottom:10px}.manual-link{display:inline-block;margin-top:15px;color:#666;text-decoration:none;font-size:14px; margin-right:15px;}.manual-link:hover{text-decoration:underline;color:#007bff}.info{color:#666;font-size:14px;margin-bottom:20px}</style></head><body><div class="container"><h2>Gerador de Croquis</h2><p class="info">Cole abaixo o encerramento do Sistema <strong>GENESIS</strong>.</p><form method="post" action="/preencher"><textarea name="raw_text" placeholder="Cole aqui..."></textarea><br><button type="submit">Processar Texto »</button></form><div><a href="/form" class="manual-link">Preencher manualmente</a> | <a href="/admin" class="manual-link" style="color:#28a745;">☁️ Painel de Técnicos</a> | <a href="/mapa/" target="_blank" class="manual-link" style="color:#17a2b8;">🗺️ Localizações de Sites</a></div></div></body></html>"""
 
-FORM_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Confirmar Dados - Gerador de Croqui</title>
+FORM_HTML = r"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Confirmar Dados - Gerador de Croqui</title>
 <style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;padding:10px;margin:0} .container{width:95%;max-width:900px;margin:10px auto;background:#fff;padding:20px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.05);box-sizing:border-box} input,textarea{width:100%;padding:12px;margin-bottom:15px;border:1px solid #ccc;border-radius:5px;font-size:16px;box-sizing:border-box} textarea{height:150px;font-family:monospace} button{padding:15px;font-size:16px;border:none;border-radius:5px;cursor:pointer;font-weight:bold;color:#fff;width:100%;margin-bottom:10px} #btn-validate{background:#28a745} #btn-validate:hover{background:#218838} h3{margin-top:20px;border-bottom:2px solid #eee;padding-bottom:10px;color:#444;font-size:18px} label{font-weight:600;font-size:14px;color:#555;display:block;margin-bottom:5px} .error{border:2px solid #dc3545!important;background:#fff0f0} .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:15px} .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px} @media(max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr;gap:10px} .container{padding:15px;width:100%}} .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:999;display:none;justify-content:center;align-items:center} .modal-content{background:#fff;padding:25px;border-radius:12px;width:90%;max-width:400px;box-shadow:0 5px 15px rgba(0,0,0,0.3)} .modal-title{font-size:1.2rem;font-weight:bold;margin-bottom:15px;color:#dc3545} .modal-list{margin-bottom:20px;padding-left:20px;color:#333} .modal-actions{display:flex;flex-direction:column;gap:10px} #btn-modal-back{background:#6c757d} #btn-modal-proceed{background:#007bff} .tag{display:inline-block;background:#e9ecef;color:#333;padding:8px 14px;border-radius:20px;margin:4px;font-size:14px;border:1px solid #ddd} .tag span{margin-left:10px;cursor:pointer;color:#dc3545;font-weight:bold} #exec-list{max-height:200px;overflow-y:auto;border:1px solid #eee;border-radius:4px;margin-bottom:10px} #exec-list div{padding:12px;border-bottom:1px solid #f0f0f0;cursor:pointer;display:flex;justify-content:space-between} #exec-list div:hover{background:#f8f9fa;color:#007bff} .area-badge{color:#999;font-size:0.9em} .back-btn{background:#007bff;text-decoration:none;display:block;color:white;padding:15px;border-radius:5px;text-align:center;margin-bottom:10px;font-weight:bold}</style></head>
 <body><div id="modal-overlay" class="modal-overlay"><div class="modal-content"><div class="modal-title">Campos Vazios</div><p>Faltam preencher:</p><ul id="modal-list" class="modal-list"></ul><div class="modal-actions"><button id="btn-modal-back" type="button">Voltar</button><button id="btn-modal-proceed" type="button">Gerar Assim Mesmo</button></div></div></div>
 <div class="container"><form method="post" action="/generate" target="_blank"><input type="hidden" name="lat" value="{{ data.get('lat','') }}"><input type="hidden" name="lon" value="{{ data.get('lon','') }}">
@@ -822,10 +806,10 @@ FORM_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="view
 <label>Causa</label><input name="causa" value="{{ data.get('causa','') }}"><label>Endereço</label><input name="endereco" value="{{ data.get('endereco','') }}">
 <div class="grid-3"><div><label>Localidade</label><input name="localidade" value="{{ data.get('localidade','') }}"></div><div><label>ES</label><input name="es" value="{{ data.get('es','') }}"></div><div><label>AT</label><input name="at" value="{{ data.get('at','') }}"></div></div>
 <div class="grid-2"><div><label>Tronco</label><input name="tronco" value="{{ data.get('tronco','') }}"></div><div><label>Veículo</label><input name="veiculo" value="{{ data.get('veiculo','') }}"></div></div>
-<div class="grid-2"><div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','Wellington') }}"></div><div><label>Data</label><input name="data" value="{{ data.get('data','') }}"></div></div>
+<div class="grid-2"><div><label>Supervisor</label><input name="supervisor" value="{{ data.get('supervisor','') }}"></div><div><label>Data</label><input name="data" value="{{ data.get('data','') }}"></div></div>
 <h3>Executantes</h3><div id="exec-tags" style="margin-bottom:10px"></div><input id="exec-input" placeholder="Buscar técnico na nuvem..."><div id="exec-list"></div><input type="hidden" name="executantes" id="exec-hidden">
 <h3>Tratativas</h3><textarea name="itens">{{ itens_texto }}</textarea><div style="margin-top:30px"><button id="btn-validate" type="submit">Gerar PDF Final</button><a href="/" class="back-btn">Voltar para Início</a></div></form></div>
-<script>document.addEventListener('DOMContentLoaded', () => { let tecnicos = []; let selecionados = {{ executantes_list|tojson }}; let veiculosMap = {{ veiculos_map|tojson }}; fetch('/tecnicos').then(r => r.json()).then(d => { tecnicos = d; console.log("Base de técnicos carregada!"); }); const form = document.querySelector('form'); const input = document.getElementById('exec-input'); const list = document.getElementById('exec-list'); const hidden = document.getElementById('exec-hidden'); const tagsBox = document.getElementById('exec-tags'); const inputVeiculo = document.querySelector('input[name="veiculo"]'); const modalOverlay = document.getElementById('modal-overlay'); const modalList = document.getElementById('modal-list'); const btnValidate = document.getElementById('btn-validate'); const btnModalBack = document.getElementById('btn-modal-back'); const btnModalProceed = document.getElementById('btn-modal-proceed'); function atualizarHidden() { hidden.value = selecionados.join(', '); if (selecionados.length > 0) input.classList.remove('error'); } function renderTags() { tagsBox.innerHTML = ''; selecionados.forEach(nome => { const tag = document.createElement('div'); tag.className = 'tag'; tag.innerHTML = `${nome} <span>&times;</span>`; tag.querySelector('span').onclick = () => { selecionados = selecionados.filter(n => n !== nome); atualizarHidden(); renderTags(); }; tagsBox.appendChild(tag); }); } renderTags(); atualizarHidden(); input.addEventListener('input', () => { const v = input.value.toLowerCase(); list.innerHTML = ''; if (!v) return; input.classList.remove('error'); tecnicos.filter(t => t.name.toLowerCase().includes(v) && !selecionados.includes(t.name)).slice(0, 8).forEach(t => { const div = document.createElement('div'); div.innerHTML = `<span>${t.name}</span> <span class="area-badge">Área ${t.area}</span>`; div.onclick = () => { selecionados.push(t.name); const nomeChave = t.name.toLowerCase(); if (veiculosMap[nomeChave] && inputVeiculo.value === "") { inputVeiculo.value = veiculosMap[nomeChave]; inputVeiculo.classList.remove('error'); } atualizarHidden(); renderTags(); input.value = ''; list.innerHTML = ''; }; list.appendChild(div); }); }); document.querySelectorAll('input, textarea').forEach(el => { el.addEventListener('input', function() { if (this.value.trim() !== '') this.classList.remove('error'); }); }); btnValidate.addEventListener('click', (e) => { e.preventDefault(); let missing = []; const fields = [ {name: 'ta', label: 'TA'}, {name: 'codigo_obra', label: 'Código Obra'}, {name: 'causa', label: 'Causa'}, {name: 'endereco', label: 'Endereço'}, {name: 'localidade', label: 'Localidade'}, {name: 'tronco', label: 'Tronco'}, {name: 'veiculo', label: 'Veículo'}, {name: 'supervisor', label: 'Supervisor'}, {name: 'data', label: 'Data'}, {name: 'itens', label: 'Tratativas'} ]; fields.forEach(f => { const el = document.querySelector(`[name="${f.name}"]`); if (!el.value.trim()) { el.classList.add('error'); missing.push(f.label); } }); if (selecionados.length === 0) { input.classList.add('error'); missing.push('Executantes'); } if (missing.length > 0) { modalList.innerHTML = missing.map(i => `<li>${i}</li>`).join(''); modalOverlay.style.display = 'flex'; } else { form.submit(); } }); btnModalBack.addEventListener('click', () => { modalOverlay.style.display = 'none'; }); btnModalProceed.addEventListener('click', () => { modalOverlay.style.display = 'none'; form.submit(); }); });</script></body></html>"""
+<script>document.addEventListener('DOMContentLoaded', () => { let tecnicos = []; let selecionados = {{ executantes_list|tojson }}; let veiculosMap = {{ veiculos_map|tojson }}; fetch('/tecnicos').then(r => r.json()).then(d => { tecnicos = d; console.log("Base de técnicos carregada!"); }); const form = document.querySelector('form'); const input = document.getElementById('exec-input'); const list = document.getElementById('exec-list'); const hidden = document.getElementById('exec-hidden'); const tagsBox = document.getElementById('exec-tags'); const inputVeiculo = document.querySelector('input[name="veiculo"]'); const inputSupervisor = document.querySelector('input[name="supervisor"]'); const modalOverlay = document.getElementById('modal-overlay'); const modalList = document.getElementById('modal-list'); const btnValidate = document.getElementById('btn-validate'); const btnModalBack = document.getElementById('btn-modal-back'); const btnModalProceed = document.getElementById('btn-modal-proceed'); function atualizarHidden() { hidden.value = selecionados.join(', '); if (selecionados.length > 0) input.classList.remove('error'); } function renderTags() { tagsBox.innerHTML = ''; selecionados.forEach(nome => { const tag = document.createElement('div'); tag.className = 'tag'; tag.innerHTML = `${nome} <span>×</span>`; tag.querySelector('span').onclick = () => { selecionados = selecionados.filter(n => n !== nome); atualizarHidden(); renderTags(); }; tagsBox.appendChild(tag); }); } renderTags(); atualizarHidden(); input.addEventListener('input', () => { const v = input.value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); list.innerHTML = ''; if (!v) return; input.classList.remove('error'); const termosBusca = v.split(" ").filter(Boolean); tecnicos.filter(t => { const nomeNorm = t.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); const partesNome = nomeNorm.split(" "); const bateuBusca = termosBusca.every(termo => partesNome.some(parte => parte.startsWith(termo))); return bateuBusca && !selecionados.includes(t.name); }).slice(0, 8).forEach(t => { const div = document.createElement('div'); div.innerHTML = `<span>${t.name}</span> <span class="area-badge">Área ${t.area}</span>`; div.onclick = () => { selecionados.push(t.name); const nomeChave = t.name.toLowerCase(); if (veiculosMap[nomeChave] && inputVeiculo.value === "") { inputVeiculo.value = veiculosMap[nomeChave]; inputVeiculo.classList.remove('error'); } if (t.supervisor) { inputSupervisor.value = t.supervisor; inputSupervisor.classList.remove('error'); } atualizarHidden(); renderTags(); input.value = ''; list.innerHTML = ''; }; list.appendChild(div); }); }); document.querySelectorAll('input, textarea').forEach(el => { el.addEventListener('input', function() { if (this.value.trim() !== '') this.classList.remove('error'); }); }); btnValidate.addEventListener('click', (e) => { e.preventDefault(); let missing = []; const fields = [ {name: 'ta', label: 'TA'}, {name: 'codigo_obra', label: 'Código Obra'}, {name: 'causa', label: 'Causa'}, {name: 'endereco', label: 'Endereço'}, {name: 'localidade', label: 'Localidade'}, {name: 'tronco', label: 'Tronco'}, {name: 'veiculo', label: 'Veículo'}, {name: 'supervisor', label: 'Supervisor'}, {name: 'data', label: 'Data'}, {name: 'itens', label: 'Tratativas'} ]; fields.forEach(f => { const el = document.querySelector(`[name="${f.name}"]`); if (!el.value.trim()) { el.classList.add('error'); missing.push(f.label); } }); if (selecionados.length === 0) { input.classList.add('error'); missing.push('Executantes'); } if (missing.length > 0) { modalList.innerHTML = missing.map(i => `<li>${i}</li>`).join(''); modalOverlay.style.display = 'flex'; } else { form.submit(); } }); btnModalBack.addEventListener('click', () => { modalOverlay.style.display = 'none'; }); btnModalProceed.addEventListener('click', () => { modalOverlay.style.display = 'none'; form.submit(); }); });</script></body></html>"""
 
 KML_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -1040,8 +1024,10 @@ def admin():
         if action == 'add':
             nome = request.form.get('nome', '').strip().lower()
             if nome:
+                supervisor = request.form.get('supervisor', '').strip().title()
                 db['tecnicos'][nome] = {'re': request.form.get('re', '').strip(),
-                                        'area': request.form.get('area', '').strip()}
+                                        'area': request.form.get('area', '').strip(),
+                                        'supervisor': supervisor}
                 placa = request.form.get('placa', '').strip().upper()
                 if placa: db['veiculos'][nome] = placa
                 save_db(db)
@@ -1051,11 +1037,13 @@ def admin():
             re_code = request.form.get('re', '').strip()
             area = request.form.get('area', '').strip()
             placa = request.form.get('placa', '').strip().upper()
+            supervisor = request.form.get('supervisor', '').strip().title()
+
             if orig_nome and new_nome and orig_nome in db['tecnicos']:
                 if new_nome != orig_nome:
                     del db['tecnicos'][orig_nome]
                     if orig_nome in db['veiculos']: del db['veiculos'][orig_nome]
-                db['tecnicos'][new_nome] = {'re': re_code, 'area': area}
+                db['tecnicos'][new_nome] = {'re': re_code, 'area': area, 'supervisor': supervisor}
                 if placa:
                     db['veiculos'][new_nome] = placa
                 elif new_nome in db['veiculos']:
@@ -1080,7 +1068,8 @@ def index(): return render_template_string(PASTE_HTML)
 @app.route('/tecnicos')
 def tecnicos():
     db = load_db()
-    return json.dumps([{'name': k, 'area': v.get('area', '')} for k, v in db['tecnicos'].items()])
+    return json.dumps([{'name': k, 'area': v.get('area', ''), 'supervisor': v.get('supervisor', '')} for k, v in
+                       db['tecnicos'].items()])
 
 
 @app.route('/form')
