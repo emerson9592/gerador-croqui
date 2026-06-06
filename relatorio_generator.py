@@ -190,15 +190,34 @@ def extract_fields(text, db):
              'supervisor', 'lat', 'lon']}
     text = text.replace('\r\n', '\n').strip()
 
+    # === BUSCA DA TA ===
     m_ta = re.search(r"(?:TA|T\.A\.?|TICKET)\s*[:\-]?\s*\*?(\d{8,})\*?", text, re.IGNORECASE)
     if m_ta:
         data['ta'] = m_ta.group(1)
     else:
-        m_loose = re.search(r"\b(35\d{7})\b", text)
-        if m_loose: data['ta'] = m_loose.group(1)
+        # Plano B: Pega o primeiro número longo (8 a 11 dígitos) logo no começo da primeira linha
+        m_loose_start = re.search(r"^\s*(\d{8,11})\b", text)
+        if m_loose_start:
+            data['ta'] = m_loose_start.group(1)
+        else:
+            # Plano C: Procura qualquer número de 9 dígitos que comece com 3 ou 4 (padrão Vivo)
+            m_loose = re.search(r"\b([34]\d{8})\b", text)
+            if m_loose: data['ta'] = m_loose.group(1)
 
+    # === BUSCA DO SGM (CÓDIGO OBRA) ===
     m_sgm = re.search(r"(?:SGM|Obra)[\s:\-]*(\d{8,})", text, re.IGNORECASE)
-    if m_sgm: data['codigo_obra'] = m_sgm.group(1)
+    if m_sgm:
+        data['codigo_obra'] = m_sgm.group(1)
+    else:
+        # Plano B: Procura um número longo (9 a 12 dígitos) logo após "Material utilizado:"
+        m_sgm_after_material = re.search(r"Material\s+utilizado:[\s\S]*?\b(\d{9,12})\b", text, re.IGNORECASE)
+        if m_sgm_after_material:
+            data['codigo_obra'] = m_sgm_after_material.group(1)
+        else:
+            # Plano C: O SGM costuma ter 10 dígitos e começar com 202x (ano)
+            m_sgm_loose = re.search(r"\b(20[2-9]\d{7})\b", text)
+            if m_sgm_loose:
+                data['codigo_obra'] = m_sgm_loose.group(1)
 
     m_sigla = re.search(r"(?:SIGLA|RESPOSTA)[\s:;\-]*([A-Z]{3})[\.\-\s]+([A-Z0-9]{2})\b", text, re.IGNORECASE)
     if m_sigla:
