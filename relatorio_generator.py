@@ -296,14 +296,40 @@ def detect_double_point(material_lines):
     return False
 
 
-def extrair_vt_sobressalente(linhas):
+def extrair_vt_sobressalente(linhas_ou_texto):
     vts = []
-    for linha in linhas:
-        m = re.search(r'vt\s+sobressalente.*?(\d+)\s*(?:m|mt|mts|metros).*?(?:xc|cs)\s*(\d+)', linha, re.IGNORECASE)
-        if m:
-            vts.append({'len': int(m.group(1)), 'xc': int(m.group(2))})
-    return vts
+    # Se receber uma lista, junta tudo num texto só
+    if isinstance(linhas_ou_texto, list):
+        texto = " ".join(linhas_ou_texto)
+    else:
+        texto = str(linhas_ou_texto)
 
+    # Dois radares: um para metragem DEPOIS da VT, outro para metragem ANTES da VT
+    padroes_vt = [
+        # Formato 1: "VT sobressalente 20m"
+        r'vt[\s\S]{0,15}sobress?alente[\s\S]{0,20}?(\d+)\s*(?:m\b|mt|mts|metros)',
+        # Formato 2: "20m de VT sobressalente"
+        r'(\d+)\s*(?:m\b|mt|mts|metros)[\s\S]{0,20}vt[\s\S]{0,15}sobress?alente'
+    ]
+
+    for padrao in padroes_vt:
+        matches = re.finditer(padrao, texto, re.IGNORECASE)
+        for m in matches:
+            vt_len = int(m.group(1))
+
+            # Amplia a busca do poste num raio de 40 caracteres (para trás e para frente)
+            inicio = max(0, m.start() - 40)
+            fim = min(len(texto), m.end() + 40)
+            trecho = texto[inicio:fim]
+
+            m_xc = re.search(r'(?:xc|cs|poste)\s*[-:]?\s*(\d+)', trecho, re.IGNORECASE)
+            xc_idx = int(m_xc.group(1)) if m_xc else 1
+
+            # Evita adicionar a mesma VT duas vezes se os dois radares pegarem a mesma frase
+            if not any(v['len'] == vt_len and v['xc'] == xc_idx for v in vts):
+                vts.append({'len': vt_len, 'xc': xc_idx})
+
+    return vts
 
 def generate_pps(total_length, vt_each=15, extra_vt=0):
     usable = total_length - (2 * vt_each) - extra_vt
