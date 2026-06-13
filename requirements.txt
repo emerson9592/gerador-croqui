@@ -6,3 +6,4 @@ geopy
 requests
 firebase-admin
 telethon
+playwright
