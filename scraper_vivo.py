@@ -13,9 +13,7 @@ async def buscar_dados_ta_sigitm(ta_number):
     busca a TA, acessa as abas Hist. e Proced. e extrai o texto bruto.
     """
     async with async_playwright() as p:
-        # headless=True faz o robô rodar em segundo plano
-        browser = await p.chromium.launch(headless=True)
-
+        browser = await p.chromium.launch(headless=True, args=['--disable-popup-blocking'])
         try:
             # 1. Carrega a sessão forçando tamanho de tela e "disfarce" de usuário real
             context = await browser.new_context(
