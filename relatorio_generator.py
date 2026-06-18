@@ -303,7 +303,17 @@ def extract_fields_sigitm(text, db):
     if m_data: data['data'] = m_data.group(1)
 
     m_super = re.search(r"Supervisor:\s*([^\n]+)", text, re.IGNORECASE)
-    if m_super: data['supervisor'] = m_super.group(1).strip().title()
+    if m_super:
+        # Pega o texto bruto
+        sup_bruto = m_super.group(1).strip()
+        # Corta na barra '/' e pega só a primeira parte (o nome)
+        sup_limpo = sup_bruto.split('/')[0].strip().title()
+
+        # Se você quiser que apareça RIGOROSAMENTE apenas o primeiro nome,
+        # apague o '#' da linha de baixo:
+        sup_limpo = sup_limpo.split()[0]
+
+        data['supervisor'] = sup_limpo
 
     data['executantes_parsed'] = extrair_executantes_seguro(text, db)
 
