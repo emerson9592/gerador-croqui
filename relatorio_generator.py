@@ -45,7 +45,7 @@ ADMIN_PASSWORD = "vivo"
 # ==========================================
 # CONFIGURAÇÕES DO FIREBASE (NUVEM)
 # ==========================================
-FIREBASE_DB_URL = 'https://geradorcroqui-default-rtdb.firebaseio.com/'
+FIREBASE_DB_URL = 'https://gerador-de-croqui-97b2f-default-rtdb.firebaseio.com/'
 
 if not firebase_admin._apps:
     try:
@@ -75,16 +75,18 @@ DB_ALIASES = {
 # --- FUNÇÕES DE COMUNICAÇÃO FIREBASE ---
 def load_db():
     try:
-        ref = firebase_db.reference('/')
-        data = ref.get()
-        if not data: return {"tecnicos": {}, "veiculos": {}, "locais_kml": {}, "croquis": {}}
-        if 'tecnicos' not in data: data['tecnicos'] = {}
-        if 'veiculos' not in data: data['veiculos'] = {}
-        if 'locais_kml' not in data: data['locais_kml'] = {}
-        if 'croquis' not in data: data['croquis'] = {} # <--- LINHA NOVA
-        return data
+        # A MÁGICA: Baixamos gaveta por gaveta.
+        # O sistema NUNCA toca na pasta 'pdfs_pesados' aqui.
+        db_data = {
+            "tecnicos": firebase_db.reference('/tecnicos').get() or {},
+            "veiculos": firebase_db.reference('/veiculos').get() or {},
+            "locais_kml": firebase_db.reference('/locais_kml').get() or {},
+            "croquis": firebase_db.reference('/croquis').get() or {}
+        }
+        return db_data
     except Exception as e:
-        print(f"Erro Firebase: {e}")
+        print(f"Erro na carga seletiva: {e}")
+        # Retorna estrutura vazia para o site não quebrar
         return {"tecnicos": {}, "veiculos": {}, "locais_kml": {}, "croquis": {}}
 
 def save_db(data):
@@ -93,7 +95,6 @@ def save_db(data):
         ref.set(data)
     except Exception as e:
         print(f"Erro Save Firebase: {e}")
-
 
 # --- CONFIGURAÇÕES DE PDF ---
 COORDS = {
