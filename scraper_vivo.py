@@ -23,7 +23,6 @@ async def buscar_dados_ta_sigitm(ta_number):
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
-                '--single-process'
             ]
         )
 
@@ -39,7 +38,7 @@ async def buscar_dados_ta_sigitm(ta_number):
             await page.goto("https://sigitm.vivo.com.br/app/app.jsp", wait_until="networkidle")
 
             print("🗂️ Verificando abas abertas e mudando o foco...")
-            for _ in range(10):
+            for _ in range(30):
                 if len(context.pages) > 1:
                     break
                 await asyncio.sleep(0.5)
@@ -51,7 +50,7 @@ async def buscar_dados_ta_sigitm(ta_number):
 
             print("➡️ Aguardando o menu de árvore carregar...")
             menu_anormalidade = page.get_by_text("Tíquete de anormalidade")
-            await menu_anormalidade.wait_for(state="visible", timeout=20000)
+            await menu_anormalidade.wait_for(state="visible", timeout=60000)
 
             print("➡️ Clicando no item 'Tíquete de anormalidade' para expandir o menu...")
             await menu_anormalidade.click()
