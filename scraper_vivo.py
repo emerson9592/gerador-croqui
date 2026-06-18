@@ -7,26 +7,27 @@ from playwright.async_api import async_playwright
 # =======================================================
 # FUNÇÃO 1: BUSCAR DADOS DA TA (A que trabalha no dia a dia)
 # =======================================================
+# =======================================================
+# FUNÇÃO 1: BUSCAR DADOS DA TA (A que trabalha no dia a dia)
+# =======================================================
 async def buscar_dados_ta_sigitm(ta_number):
     """
     Abre o navegador usando a sessão salva, foca na aba correta,
     busca a TA, acessa as abas Hist. e Proced. e extrai o texto bruto.
     """
     async with async_playwright() as p:
-        # Otimização crucial para servidores Cloud (Render): limita o uso de RAM e CPU
         browser = await p.chromium.launch(
             headless=True,
             args=[
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',  # Evita falhas por falta de memória partilhada
+                '--disable-dev-shm-usage',
                 '--disable-gpu',
-                '--single-process'  # Reduz a criação de múltiplos processos do Chromium
+                '--single-process'
             ]
         )
 
         try:
-            # 1. Carrega a sessão forçando tamanho de ecrã e "disfarce" de utilizador real
             context = await browser.new_context(
                 storage_state="sessao_sigitm.json",
                 viewport={'width': 1920, 'height': 1080},
@@ -35,24 +36,19 @@ async def buscar_dados_ta_sigitm(ta_number):
             page = await context.new_page()
 
             print("🌐 Acessando o SIGITM com a sessão salva...")
-            # Usamos wait_until="networkidle" para garantir que a página base carregou os scripts iniciais
             await page.goto("https://sigitm.vivo.com.br/app/app.jsp", wait_until="networkidle")
 
-            # --- O TRUQUE DAS ABAS (Otimizado) ---
             print("🗂️ Verificando abas abertas e mudando o foco...")
-
-            # Pequeno loop dinâmico para esperar o sistema abrir a nova aba interna
             for _ in range(10):
                 if len(context.pages) > 1:
                     break
                 await asyncio.sleep(0.5)
 
             todas_as_abas = context.pages
-            page = todas_as_abas[-1]  # Foca na última aba aberta
+            page = todas_as_abas[-1]
             await page.bring_to_front()
             print("✅ Sistema focado na aba correta!")
 
-            # 2. Navegação no Menu Lateral (Árvore)
             print("➡️ Aguardando o menu de árvore carregar...")
             menu_anormalidade = page.get_by_text("Tíquete de anormalidade")
             await menu_anormalidade.wait_for(state="visible", timeout=20000)
@@ -67,9 +63,7 @@ async def buscar_dados_ta_sigitm(ta_number):
             print("➡️ Clicando em 'Localizar'...")
             await localizar_item.click()
 
-            # 3. Busca da TA
             print("➡️ Aguardando a tela de pesquisa carregar...")
-            # Espera dinamicamente pelo rótulo do formulário
             await page.get_by_text("Número do tíquete:").wait_for(state="visible", timeout=15000)
 
             print(f"🔍 Digitando a TA: {ta_number}")
@@ -80,22 +74,18 @@ async def buscar_dados_ta_sigitm(ta_number):
             await page.keyboard.press("Enter")
 
             print("⏳ Aguardando a tela da TA carregar...")
-            # Em vez de esperar 4 segundos fixos, espera até que o botão 'Hist.' esteja visível na interface da TA
             aba_hist = page.locator("text='Hist.'")
             await aba_hist.wait_for(state="visible", timeout=20000)
 
-            # 4. Extração na aba Histórico
             print("➡️ Acessando a aba 'Hist.'...")
             await aba_hist.click()
 
-            # Espera que as requisições AJAX de carregamento da tabela terminem
             await page.wait_for_load_state("networkidle")
-            await asyncio.sleep(1)  # Pausa mínima de segurança para renderização interna do sistema legada
+            await asyncio.sleep(1)
 
             print("📥 Extraindo texto do Histórico...")
             texto_historico = await page.locator("body").inner_text()
 
-            # 5. Extração na aba Procedimentos
             print("➡️ Acessando a aba 'Proced.'...")
             aba_proced = page.locator("text='Proced.'")
             await aba_proced.wait_for(state="visible", timeout=10000)
@@ -107,7 +97,6 @@ async def buscar_dados_ta_sigitm(ta_number):
             print("📥 Extraindo texto dos Procedimentos...")
             texto_procedimentos = await page.locator("body").inner_text()
 
-            # 6. Juntando as informações brutas
             texto_bruto_completo = (
                     "--- ABA HISTÓRICO ---\n\n" +
                     texto_historico +
@@ -118,9 +107,18 @@ async def buscar_dados_ta_sigitm(ta_number):
             print("\n✅ EXTRAÇÃO CONCLUÍDA!")
             return texto_bruto_completo
 
+        # === AQUI ENTRA O NOSSO MODO DETETIVE ===
         except Exception as e:
             print(f"❌ Erro na automação de busca: {e}")
+            try:
+                print(f"🔎 DEBUG - URL atual: {page.url}")
+                titulo = await page.title()
+                print(f"🔎 DEBUG - Título da página: {titulo}")
+            except Exception as debug_err:
+                print(f"⚠️ Não foi possível extrair dados de debug: {debug_err}")
             return None
+        # ========================================
+
         finally:
             print("Fechando navegador de busca...\n")
             await browser.close()
