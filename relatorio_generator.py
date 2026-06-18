@@ -195,17 +195,47 @@ def organizar_tratativas(texto_bruto):
 
 
 def extrair_tronco_seguro(text):
-    texto_limpo = re.sub(r"CAPACIDADE.*?(\n|$)", "\n", text, flags=re.IGNORECASE)
-    padroes = [
-        r"N[UÚuú]MERO\s+DO\s+CABO[\s:;\-#]+(?:RESPOSTA[\s:;\-#]+)?(\d+)",
-        r"\bTR[\s#]*(\d+)",
-        r"\bCABO[\s:;#]*(\d+)"
+    # 1. Limpa asteriscos soltos que atrapalham a leitura (ex: *NÚMERO DO CABO:*)
+    texto_limpo = text.replace('*', '')
+
+    # 2. Remove linhas de capacidade para o robô não pescar "24" (da quantidade de fibras) por engano
+    texto_limpo = re.sub(r"CAPACIDADE.*?(\n|$)", "\n", texto_limpo, flags=re.IGNORECASE)
+
+    # 3. Padrão Unificado de Alta Precisão
+    # Lida com:
+    # - Mesma linha: "NUMERO DO CABO: C#63" ou "NUMERO DO CABO C TRONCO 01"
+    # - Quebra de linha: "20) NÚMERO DO CABO;\nRESPOSTA: C#63;"
+    padrao_principal = r"N[UÚuú]MERO\s+DO\s+CABO(?:[^\n]*[\r\n]+[^\n]{0,15}?RESPOSTA[^\n]{0,25}?|[^\n]{0,25}?)([Cc]?\s*#?\s*\d+)"
+
+    validos = []
+
+    # Usamos finditer para escanear o texto inteiro de cima a baixo
+    for m in re.finditer(padrao_principal, texto_limpo, re.IGNORECASE):
+        # Captura o número bruto e remove qualquer espaço no meio (Ex: "C # 63" vira "C#63")
+        m_limpo = re.sub(r'\s+', '', m.group(1)).upper()
+        if m_limpo and m_limpo != "0":
+            validos.append(m_limpo)
+
+    # Se encontrou no padrão principal, retorna o último da lista
+    if validos:
+        return validos[-1]
+
+    # 4. Fallback: Se o técnico escreveu de um jeito completamente bizarro,
+    # o robô procura apenas por TR ou CABO isolados.
+    padroes_fallback = [
+        r"\bTR[\s:;\-#]*([Cc]?\s*#?\s*\d+)",
+        r"\bCABO[\s:;\-#]*([Cc]?\s*#?\s*\d+)"
     ]
-    for padrao in padroes:
-        matches = re.findall(padrao, texto_limpo, re.IGNORECASE)
-        validos = [m for m in matches if m and m != "0"]
-        if validos:
-            return str(int(validos[-1]))
+
+    for padrao in padroes_fallback:
+        for m in re.finditer(padrao, texto_limpo, re.IGNORECASE):
+            m_limpo = re.sub(r'\s+', '', m.group(1)).upper()
+            if m_limpo and m_limpo != "0":
+                validos.append(m_limpo)
+
+    if validos:
+        return validos[-1]
+
     return ""
 
 

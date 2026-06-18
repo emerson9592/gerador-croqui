@@ -4,124 +4,109 @@ import re
 from playwright.async_api import async_playwright
 
 
+def limpar_texto_gwt(texto_bruto):
+    """ Filtra a maçaroca do GWT e extrai apenas o texto legível """
+    textos = re.findall(r'"(.*?)"', texto_bruto)
+    texto_limpo = []
+
+    # Palavras que só devem ser ignoradas se forem EXATAMENTE iguais
+    # (Evita apagar o histórico inteiro só porque tem a palavra "Data" no meio)
+    colunas_grid = [
+        'Código', 'Data', 'Grupo', 'Usuário', 'Armário',
+        'Cód. Localidade', 'Sigla Localidade', 'Nome Localidade',
+        'Cód. Área', 'Nome Área', 'sortField', 'sortDir', 'sfm'
+    ]
+
+    # Substrings que se aparecerem em qualquer lugar da string, nós ignoramos
+    lixo_sistema = [
+        'com.telefonica', 'com.extjs', 'java.lang',
+        'TBL_', 'net.customware', 'LISTA_'
+    ]
+
+    for t in textos:
+        texto_aparado = t.strip()
+
+        # 1. Se for exatamente o nome de uma coluna solta, ignora
+        if texto_aparado in colunas_grid:
+            continue
+
+        # 2. Se contiver código de sistema escondido no meio, ignora
+        if any(x in t for x in lixo_sistema):
+            continue
+
+        # 3. Se passou pelos filtros, é texto humano de verdade!
+        if len(texto_aparado) > 2:
+            # Converte os escapes de quebra de linha que vêm da API
+            t = t.replace('\\n', '\n').replace('\\r', '')
+            texto_limpo.append(t)
+
+    return "\n\n".join(texto_limpo)
+
+
 # =======================================================
-# FUNÇÃO 1: BUSCAR DADOS DA TA (A que trabalha no dia a dia)
-# =======================================================
-# =======================================================
-# FUNÇÃO 1: BUSCAR DADOS DA TA (A que trabalha no dia a dia)
+# FUNÇÃO 1: BUSCAR DADOS DA TA (API TURBO)
 # =======================================================
 async def buscar_dados_ta_sigitm(ta_number):
     """
-    Abre o navegador usando a sessão salva, foca na aba correta,
-    busca a TA, acessa as abas Hist. e Proced. e extrai o texto bruto.
+    Bate direto na API do SIGITM usando pacotes GWT RPC.
     """
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-            ]
+        request_context = await p.request.new_context(
+            storage_state="sessao_sigitm.json"
         )
 
+        print(f"⚡ Disparando requisições API para a TA: {ta_number}...")
+
+        url_rpc = "https://sigitm.vivo.com.br/app/modules/Sigitm/command.rpc"
+
+        headers = {
+            "Content-Type": "text/x-gwt-rpc; charset=utf-8",
+            "X-GWT-Permutation": "ED03BE33C7AAC86185E1D08DD3FAB578",
+            "X-GWT-Module-Base": "https://sigitm.vivo.com.br/app/modules/Sigitm/"
+        }
+
+        # 1. NOVO PACOTE: A Capa da TA (Endereço, Localidade, Causa, etc.)
+        payload_capa = f"7|0|7|https://sigitm.vivo.com.br/app/modules/Sigitm/|ED03BE33C7AAC86185E1D08DD3FAB578|com.telefonica.fsr.command.client.CommandService|execute|net.customware.gwt.dispatch.shared.Action|com.telefonica.sigitm.gxt.ta.shared.command.GetAR/2509891078|java.lang.Integer/3438268394|1|2|3|4|1|5|6|7|{ta_number}|0|"
+
+        # 2. Histórico
+        payload_historico = f"7|0|7|https://sigitm.vivo.com.br/app/modules/Sigitm/|ED03BE33C7AAC86185E1D08DD3FAB578|com.telefonica.fsr.command.client.CommandService|execute|net.customware.gwt.dispatch.shared.Action|com.telefonica.sigitm.gxt.ta.shared.command.ListarHistoricosTaAction/740817333|java.lang.Integer/3438268394|1|2|3|4|1|5|6|7|{ta_number}|"
+
+        # 3. Procedimentos
+        payload_procedimento = f"7|0|30|https://sigitm.vivo.com.br/app/modules/Sigitm/|ED03BE33C7AAC86185E1D08DD3FAB578|com.telefonica.fsr.command.client.CommandService|execute|net.customware.gwt.dispatch.shared.Action|com.telefonica.sigitm.gxt.widget.shared.command.GridAR/4194059826|com.telefonica.sigitm.gxt.widget.shared.sfm.SfmLoadConfig/3569800714|com.extjs.gxt.ui.client.data.RpcMap/3441186752|sortField|sortDir|com.extjs.gxt.ui.client.Style$SortDir/3873584144|sfm|com.telefonica.sigitm.gxt.widget.shared.sfm.SelectForMapping/585997930|java.util.ArrayList/4159755760|com.telefonica.sigitm.gxt.widget.shared.sfm.Column/1420698442|Código|TBL_PROCEDIMENTOS_TA#PCA_CODIGO|Data|TBL_PROCEDIMENTOS_TA#PCA_DATA|Grupo|TBL_PROCEDIMENTOS_TA#PCA_GRUPO#GRP_NOME|Usuário|TBL_PROCEDIMENTOS_TA#PCA_USUARIO#USR_NOME|TBL_PROCEDIMENTOS_TA|LISTA_PROCEDIMENTOS_TA|com.telefonica.sigitm.gxt.widget.shared.sfm.OrderBy/1959731157|com.telefonica.sigitm.gxt.widget.shared.sfm.Where/2540186203|TBL_PROCEDIMENTOS_TA#PCA_TA#TQA_CODIGO|TBL_TA#TQA_CODIGO|java.lang.Integer/3438268394|1|2|3|4|1|5|6|7|0|1|8|3|9|0|10|11|0|12|13|14|4|15|16|17|0|50|15|18|19|0|100|15|20|21|0|100|15|22|23|0|100|24|14|0|14|0|25|14|1|26|1|19|-1|14|0|14|1|27|28|29|30|{ta_number}|0|"
+
         try:
-            context = await browser.new_context(
-                storage_state="sessao_sigitm.json",
-                viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            )
-            page = await context.new_page()
+            print("📤 Pedindo Capa da TA (Dados Principais)...")
+            resp_capa = await request_context.post(url_rpc, data=payload_capa, headers=headers)
+            texto_capa_limpo = limpar_texto_gwt(await resp_capa.text())
 
-            print("🌐 Acessando o SIGITM com a sessão salva...")
-            await page.goto("https://sigitm.vivo.com.br/app/app.jsp", wait_until="networkidle")
+            print("📤 Pedindo Histórico...")
+            resp_hist = await request_context.post(url_rpc, data=payload_historico, headers=headers)
+            texto_hist_limpo = limpar_texto_gwt(await resp_hist.text())
 
-            print("🗂️ Verificando abas abertas e mudando o foco...")
-            for _ in range(30):
-                if len(context.pages) > 1:
-                    break
-                await asyncio.sleep(0.5)
+            print("📤 Pedindo Procedimentos...")
+            resp_proced = await request_context.post(url_rpc, data=payload_procedimento, headers=headers)
+            texto_proced_limpo = limpar_texto_gwt(await resp_proced.text())
 
-            todas_as_abas = context.pages
-            page = todas_as_abas[-1]
-            await page.bring_to_front()
-            print("✅ Sistema focado na aba correta!")
-
-            print("➡️ Aguardando o menu de árvore carregar...")
-            menu_anormalidade = page.get_by_text("Tíquete de anormalidade")
-            await menu_anormalidade.wait_for(state="visible", timeout=60000)
-
-            print("➡️ Clicando no item 'Tíquete de anormalidade' para expandir o menu...")
-            await menu_anormalidade.click()
-
-            print("➡️ Aguardando o sub-menu 'Localizar' ficar visível...")
-            localizar_item = page.get_by_text("Localizar", exact=True)
-            await localizar_item.wait_for(state="visible", timeout=15000)
-
-            print("➡️ Clicando em 'Localizar'...")
-            await localizar_item.click()
-
-            print("➡️ Aguardando a tela de pesquisa carregar...")
-            await page.get_by_text("Número do tíquete:").wait_for(state="visible", timeout=15000)
-
-            print(f"🔍 Digitando a TA: {ta_number}")
-            input_ta = page.locator("input.x-form-text:visible").first
-            await input_ta.wait_for(state="visible", timeout=10000)
-            await input_ta.fill(ta_number)
-
-            await page.keyboard.press("Enter")
-
-            print("⏳ Aguardando a tela da TA carregar...")
-            aba_hist = page.locator("text='Hist.'")
-            await aba_hist.wait_for(state="visible", timeout=20000)
-
-            print("➡️ Acessando a aba 'Hist.'...")
-            await aba_hist.click()
-
-            await page.wait_for_load_state("networkidle")
-            await asyncio.sleep(1)
-
-            print("📥 Extraindo texto do Histórico...")
-            texto_historico = await page.locator("body").inner_text()
-
-            print("➡️ Acessando a aba 'Proced.'...")
-            aba_proced = page.locator("text='Proced.'")
-            await aba_proced.wait_for(state="visible", timeout=10000)
-            await aba_proced.click()
-
-            await page.wait_for_load_state("networkidle")
-            await asyncio.sleep(1)
-
-            print("📥 Extraindo texto dos Procedimentos...")
-            texto_procedimentos = await page.locator("body").inner_text()
-
-            texto_bruto_completo = (
-                    "--- ABA HISTÓRICO ---\n\n" +
-                    texto_historico +
-                    "\n\n--- ABA PROCEDIMENTOS ---\n\n" +
-                    texto_procedimentos
+            # Montagem final recriando o layout que o seu sistema já sabe ler
+            texto_final = (
+                f"--- DADOS DA CAPA ---\n\n"
+                f"{texto_capa_limpo}\n\n"
+                "--------------------------------------------------\n\n"
+                f"--- HISTÓRICO DA TA: {ta_number} ---\n\n"
+                f"{texto_hist_limpo}\n\n"
+                "--------------------------------------------------\n\n"
+                f"--- PROCEDIMENTOS DA TA: {ta_number} ---\n\n"
+                f"{texto_proced_limpo}"
             )
 
-            print("\n✅ EXTRAÇÃO CONCLUÍDA!")
-            return texto_bruto_completo
+            print("\n✅ EXTRAÇÃO API CONCLUÍDA E LIMPA!")
+            return texto_final
 
-        # === AQUI ENTRA O NOSSO MODO DETETIVE ===
         except Exception as e:
-            print(f"❌ Erro na automação de busca: {e}")
-            try:
-                print(f"🔎 DEBUG - URL atual: {page.url}")
-                titulo = await page.title()
-                print(f"🔎 DEBUG - Título da página: {titulo}")
-            except Exception as debug_err:
-                print(f"⚠️ Não foi possível extrair dados de debug: {debug_err}")
+            print(f"❌ Erro na requisição API: {e}")
             return None
-        # ========================================
-
         finally:
-            print("Fechando navegador de busca...\n")
-            await browser.close()
-
+            await request_context.dispose()
 
 # =======================================================
 # FUNÇÃO 2: RENOVAR SESSÃO COM CAPTCHA (A que te salva no Admin)
